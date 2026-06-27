@@ -20,7 +20,12 @@ var (
 	activeCtx string // contexto kubeconfig em uso (vazio = o atual do kubeconfig)
 )
 
-func setActiveContext(c string) { ctxMu.Lock(); activeCtx = c; ctxMu.Unlock() }
+func setActiveContext(c string) {
+	ctxMu.Lock()
+	activeCtx = c
+	ctxMu.Unlock()
+	invalidateListCache()
+}
 func getActiveContext() string  { ctxMu.RLock(); defer ctxMu.RUnlock(); return activeCtx }
 
 // kubectl executa kubectl já injetando --context se houver um ativo.

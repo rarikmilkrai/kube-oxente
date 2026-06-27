@@ -6,12 +6,47 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
+// --- cache de listas (evita múltiplos kubectl por request) ---
+
+const listCacheTTL = 15 * time.Second
+
+var (
+	listCacheMu  sync.RWMutex
+	listCacheMap = map[string]listCacheEntry{}
+)
+
+type listCacheEntry struct {
+	items []json.RawMessage
+	t     time.Time
+	ctx   string
+}
+
+func invalidateListCache() {
+	listCacheMu.Lock()
+	listCacheMap = map[string]listCacheEntry{}
+	listCacheMu.Unlock()
+}
+
+// clusterScoped lista recursos sem -A (evita warning do kubectl)
+var clusterScoped = map[string]bool{"nodes": true, "hpa": true}
+
 func getList(kind string) []json.RawMessage {
+	ctx := effectiveContext()
+
+	listCacheMu.RLock()
+	if e, ok := listCacheMap[kind]; ok && e.ctx == ctx && time.Since(e.t) < listCacheTTL {
+		result := e.items
+		listCacheMu.RUnlock()
+		return result
+	}
+	listCacheMu.RUnlock()
+
 	args := []string{"get", kind, "-A", "-o", "json"}
-	if kind == "nodes" { // recurso cluster-scoped: -A gera warning
+	if clusterScoped[kind] {
 		args = []string{"get", kind, "-o", "json"}
 	}
 	out, err := kubectl(args...)
@@ -22,6 +57,11 @@ func getList(kind string) []json.RawMessage {
 	if json.Unmarshal(out, &lr) != nil {
 		return nil
 	}
+
+	listCacheMu.Lock()
+	listCacheMap[kind] = listCacheEntry{items: lr.Items, t: time.Now(), ctx: ctx}
+	listCacheMu.Unlock()
+
 	return lr.Items
 }
 

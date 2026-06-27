@@ -448,7 +448,7 @@ function rCronJobs(m){var seq=renderSeq;
     var schedStr=r.lastSchedule?esc(r.lastSchedule)+" atr&aacute;s":'<span class="muted">nunca</span>';
     var succStr=r.lastSuccess?esc(r.lastSuccess)+" atr&aacute;s":'<span class="muted">nunca</span>';
     var probStr=r.problem?'<span class="s'+r.severity+'">'+esc(r.problem)+'</span>':'<span class="ok">ok</span>';
-    return'<tr>'+sev(r.severity)+'<td></td>'
+    return'<tr><td>'+sev(r.severity)+'</td>'
      +'<td class="muted">'+esc(r.ns)+'</td>'
      +'<td><b>'+esc(r.name)+'</b>'+(r.suspended?' <span class="pill">suspenso</span>':"")+'</td>'
      +'<td class="mono" style="font-size:12px">'+esc(r.schedule)+'</td>'
