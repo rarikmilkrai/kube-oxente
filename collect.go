@@ -610,3 +610,409 @@ func effectiveContext() string {
 func itoa(i int) string {
 	return strconv.Itoa(i)
 }
+
+// ---------------- metrics (kubectl top) ----------------
+
+type podMetric struct {
+	NS     string `json:"ns"`
+	Name   string `json:"name"`
+	CPU    string `json:"cpu"`
+	Memory string `json:"memory"`
+}
+
+type nodeMetric struct {
+	Name   string `json:"name"`
+	CPU    string `json:"cpu"`
+	CPUPct string `json:"cpuPct"`
+	Memory string `json:"memory"`
+	MemPct string `json:"memPct"`
+}
+
+type metricsResp struct {
+	Pods  []podMetric  `json:"pods"`
+	Nodes []nodeMetric `json:"nodes"`
+	Err   string       `json:"err,omitempty"`
+}
+
+func collectMetrics() metricsResp {
+	var resp metricsResp
+	out, err := kubectl("top", "pods", "-A", "--no-headers")
+	if err != nil {
+		resp.Err = err.Error()
+	} else {
+		for _, line := range strings.Split(string(out), "\n") {
+			f := strings.Fields(line)
+			if len(f) < 4 {
+				continue
+			}
+			resp.Pods = append(resp.Pods, podMetric{NS: f[0], Name: f[1], CPU: f[2], Memory: f[3]})
+		}
+	}
+	out2, err2 := kubectl("top", "nodes", "--no-headers")
+	if err2 == nil {
+		for _, line := range strings.Split(string(out2), "\n") {
+			f := strings.Fields(line)
+			if len(f) < 5 {
+				continue
+			}
+			resp.Nodes = append(resp.Nodes, nodeMetric{Name: f[0], CPU: f[1], CPUPct: f[2], Memory: f[3], MemPct: f[4]})
+		}
+	}
+	return resp
+}
+
+// ---------------- resource quotas ----------------
+
+type quotaResource struct {
+	Hard string `json:"hard"`
+	Used string `json:"used"`
+}
+
+type quotaRow struct {
+	NS        string                   `json:"ns"`
+	Name      string                   `json:"name"`
+	Resources map[string]quotaResource `json:"resources"`
+	Env       string                   `json:"env"`
+}
+
+func collectQuotas() []quotaRow {
+	var out []quotaRow
+	for _, raw := range getList("resourcequotas") {
+		var q struct {
+			Metadata struct {
+				Name, Namespace string
+			} `json:"metadata"`
+			Status struct {
+				Hard map[string]string `json:"hard"`
+				Used map[string]string `json:"used"`
+			} `json:"status"`
+		}
+		if json.Unmarshal(raw, &q) != nil {
+			continue
+		}
+		resources := map[string]quotaResource{}
+		for k, v := range q.Status.Hard {
+			resources[k] = quotaResource{Hard: v, Used: q.Status.Used[k]}
+		}
+		out = append(out, quotaRow{
+			NS: q.Metadata.Namespace, Name: q.Metadata.Name,
+			Resources: resources, Env: classifyEnv(q.Metadata.Namespace),
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].NS < out[j].NS })
+	return out
+}
+
+// ---------------- configmaps ----------------
+
+type cmRow struct {
+	NS   string `json:"ns"`
+	Name string `json:"name"`
+	Keys int    `json:"keys"`
+	Age  string `json:"age"`
+	Env  string `json:"env"`
+}
+
+var skipCMNS = map[string]bool{
+	"kube-system": true, "kube-public": true, "kube-node-lease": true,
+}
+
+func collectConfigMaps() []cmRow {
+	var out []cmRow
+	for _, raw := range getList("configmaps") {
+		var cm struct {
+			Metadata struct {
+				Name, Namespace   string
+				CreationTimestamp time.Time
+			} `json:"metadata"`
+			Data map[string]string `json:"data"`
+		}
+		if json.Unmarshal(raw, &cm) != nil {
+			continue
+		}
+		if skipCMNS[cm.Metadata.Namespace] || cm.Metadata.Name == "kube-root-ca.crt" {
+			continue
+		}
+		out = append(out, cmRow{
+			NS: cm.Metadata.Namespace, Name: cm.Metadata.Name,
+			Keys: len(cm.Data), Age: age(cm.Metadata.CreationTimestamp),
+			Env: classifyEnv(cm.Metadata.Namespace),
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].NS+out[i].Name < out[j].NS+out[j].Name })
+	return out
+}
+
+// ---------------- ingresses ----------------
+
+type ingressRow struct {
+	NS      string `json:"ns"`
+	Name    string `json:"name"`
+	Class   string `json:"class"`
+	Hosts   string `json:"hosts"`
+	Address string `json:"address"`
+	Ports   string `json:"ports"`
+	Age     string `json:"age"`
+	Env     string `json:"env"`
+}
+
+func collectIngresses() []ingressRow {
+	var out []ingressRow
+	for _, raw := range getList("ingresses") {
+		var ing struct {
+			Metadata struct {
+				Name, Namespace   string
+				CreationTimestamp time.Time
+				Annotations       map[string]string
+			} `json:"metadata"`
+			Spec struct {
+				IngressClassName *string `json:"ingressClassName"`
+				Rules            []struct {
+					Host string `json:"host"`
+				} `json:"rules"`
+				TLS []struct{} `json:"tls"`
+			} `json:"spec"`
+			Status struct {
+				LoadBalancer struct {
+					Ingress []struct {
+						IP       string `json:"ip"`
+						Hostname string `json:"hostname"`
+					} `json:"ingress"`
+				} `json:"loadBalancer"`
+			} `json:"status"`
+		}
+		if json.Unmarshal(raw, &ing) != nil {
+			continue
+		}
+		class := ""
+		if ing.Spec.IngressClassName != nil {
+			class = *ing.Spec.IngressClassName
+		}
+		if class == "" {
+			class = ing.Metadata.Annotations["kubernetes.io/ingress.class"]
+		}
+		var hosts []string
+		for _, r := range ing.Spec.Rules {
+			if r.Host != "" {
+				hosts = append(hosts, r.Host)
+			}
+		}
+		var addrs []string
+		for _, lb := range ing.Status.LoadBalancer.Ingress {
+			if lb.IP != "" {
+				addrs = append(addrs, lb.IP)
+			} else if lb.Hostname != "" {
+				addrs = append(addrs, lb.Hostname)
+			}
+		}
+		ports := "80"
+		if len(ing.Spec.TLS) > 0 {
+			ports = "80,443"
+		}
+		out = append(out, ingressRow{
+			NS: ing.Metadata.Namespace, Name: ing.Metadata.Name, Class: class,
+			Hosts: strings.Join(hosts, ", "), Address: strings.Join(addrs, ","),
+			Ports: ports, Age: age(ing.Metadata.CreationTimestamp),
+			Env: classifyEnv(ing.Metadata.Namespace),
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].NS+out[i].Name < out[j].NS+out[j].Name })
+	return out
+}
+
+// ---------------- cronjobs ----------------
+
+type cronRow struct {
+	NS           string `json:"ns"`
+	Name         string `json:"name"`
+	Schedule     string `json:"schedule"`
+	Suspended    bool   `json:"suspended"`
+	Active       int    `json:"active"`
+	LastSchedule string `json:"lastSchedule"`
+	LastSuccess  string `json:"lastSuccess"`
+	Age          string `json:"age"`
+	Env          string `json:"env"`
+	Severity     int    `json:"severity"`
+	Problem      string `json:"problem"`
+}
+
+func collectCronJobs() []cronRow {
+	var out []cronRow
+	for _, raw := range getList("cronjobs") {
+		var cj struct {
+			Metadata struct {
+				Name, Namespace   string
+				CreationTimestamp time.Time
+			} `json:"metadata"`
+			Spec struct {
+				Schedule string `json:"schedule"`
+				Suspend  *bool  `json:"suspend"`
+			} `json:"spec"`
+			Status struct {
+				Active             []json.RawMessage `json:"active"`
+				LastScheduleTime   *time.Time        `json:"lastScheduleTime"`
+				LastSuccessfulTime *time.Time        `json:"lastSuccessfulTime"`
+			} `json:"status"`
+		}
+		if json.Unmarshal(raw, &cj) != nil {
+			continue
+		}
+		suspended := cj.Spec.Suspend != nil && *cj.Spec.Suspend
+		lastSched := ""
+		if cj.Status.LastScheduleTime != nil {
+			lastSched = age(*cj.Status.LastScheduleTime)
+		}
+		lastSucc := ""
+		if cj.Status.LastSuccessfulTime != nil {
+			lastSucc = age(*cj.Status.LastSuccessfulTime)
+		}
+		activeCount := len(cj.Status.Active)
+		severity, problem := 0, ""
+		switch {
+		case suspended:
+			severity, problem = 1, "suspenso"
+		case cj.Status.LastScheduleTime != nil && cj.Status.LastSuccessfulTime == nil && activeCount == 0:
+			severity, problem = 2, "sem sucesso"
+		case cj.Status.LastScheduleTime != nil && cj.Status.LastSuccessfulTime != nil &&
+			activeCount == 0 &&
+			cj.Status.LastSuccessfulTime.Before(*cj.Status.LastScheduleTime) &&
+			time.Since(*cj.Status.LastScheduleTime) > 30*time.Minute:
+			severity, problem = 2, "último run falhou"
+		}
+		out = append(out, cronRow{
+			NS: cj.Metadata.Namespace, Name: cj.Metadata.Name,
+			Schedule: cj.Spec.Schedule, Suspended: suspended,
+			Active: activeCount, LastSchedule: lastSched, LastSuccess: lastSucc,
+			Age: age(cj.Metadata.CreationTimestamp), Env: classifyEnv(cj.Metadata.Namespace),
+			Severity: severity, Problem: problem,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Severity != out[j].Severity {
+			return out[i].Severity > out[j].Severity
+		}
+		return out[i].NS+out[i].Name < out[j].NS+out[j].Name
+	})
+	return out
+}
+
+// ---------------- hpa ----------------
+
+type hpaRow struct {
+	NS          string `json:"ns"`
+	Name        string `json:"name"`
+	Reference   string `json:"reference"`
+	MinReplicas int    `json:"minReplicas"`
+	MaxReplicas int    `json:"maxReplicas"`
+	Current     int    `json:"current"`
+	Desired     int    `json:"desired"`
+	Age         string `json:"age"`
+	Env         string `json:"env"`
+	OK          bool   `json:"ok"`
+}
+
+func collectHPAs() []hpaRow {
+	var out []hpaRow
+	for _, raw := range getList("hpa") {
+		var h struct {
+			Metadata struct {
+				Name, Namespace   string
+				CreationTimestamp time.Time
+			} `json:"metadata"`
+			Spec struct {
+				MinReplicas    *int `json:"minReplicas"`
+				MaxReplicas    int  `json:"maxReplicas"`
+				ScaleTargetRef struct {
+					Kind string `json:"kind"`
+					Name string `json:"name"`
+				} `json:"scaleTargetRef"`
+			} `json:"spec"`
+			Status struct {
+				CurrentReplicas int `json:"currentReplicas"`
+				DesiredReplicas int `json:"desiredReplicas"`
+			} `json:"status"`
+		}
+		if json.Unmarshal(raw, &h) != nil {
+			continue
+		}
+		minR := 1
+		if h.Spec.MinReplicas != nil {
+			minR = *h.Spec.MinReplicas
+		}
+		ref := h.Spec.ScaleTargetRef.Kind + "/" + h.Spec.ScaleTargetRef.Name
+		ok := h.Status.CurrentReplicas >= minR && h.Status.CurrentReplicas <= h.Spec.MaxReplicas
+		out = append(out, hpaRow{
+			NS: h.Metadata.Namespace, Name: h.Metadata.Name, Reference: ref,
+			MinReplicas: minR, MaxReplicas: h.Spec.MaxReplicas,
+			Current: h.Status.CurrentReplicas, Desired: h.Status.DesiredReplicas,
+			Age: age(h.Metadata.CreationTimestamp), Env: classifyEnv(h.Metadata.Namespace), OK: ok,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].NS+out[i].Name < out[j].NS+out[j].Name })
+	return out
+}
+
+// ---------------- pvcs ----------------
+
+type pvcRow struct {
+	NS           string `json:"ns"`
+	Name         string `json:"name"`
+	Status       string `json:"status"`
+	Volume       string `json:"volume"`
+	Capacity     string `json:"capacity"`
+	AccessModes  string `json:"accessModes"`
+	StorageClass string `json:"storageClass"`
+	Age          string `json:"age"`
+	Env          string `json:"env"`
+}
+
+func collectPVCs() []pvcRow {
+	var out []pvcRow
+	for _, raw := range getList("persistentvolumeclaims") {
+		var pvc struct {
+			Metadata struct {
+				Name, Namespace   string
+				CreationTimestamp time.Time
+			} `json:"metadata"`
+			Spec struct {
+				AccessModes      []string `json:"accessModes"`
+				StorageClassName *string  `json:"storageClassName"`
+				VolumeName       string   `json:"volumeName"`
+			} `json:"spec"`
+			Status struct {
+				Phase    string            `json:"phase"`
+				Capacity map[string]string `json:"capacity"`
+			} `json:"status"`
+		}
+		if json.Unmarshal(raw, &pvc) != nil {
+			continue
+		}
+		sc := ""
+		if pvc.Spec.StorageClassName != nil {
+			sc = *pvc.Spec.StorageClassName
+		}
+		cap := pvc.Status.Capacity["storage"]
+		modes := strings.Join(pvc.Spec.AccessModes, ",")
+		modes = strings.ReplaceAll(modes, "ReadWriteOnce", "RWO")
+		modes = strings.ReplaceAll(modes, "ReadOnlyMany", "ROX")
+		modes = strings.ReplaceAll(modes, "ReadWriteMany", "RWX")
+		out = append(out, pvcRow{
+			NS: pvc.Metadata.Namespace, Name: pvc.Metadata.Name, Status: pvc.Status.Phase,
+			Volume: pvc.Spec.VolumeName, Capacity: cap, AccessModes: modes,
+			StorageClass: sc, Age: age(pvc.Metadata.CreationTimestamp),
+			Env: classifyEnv(pvc.Metadata.Namespace),
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Status != out[j].Status {
+			if out[i].Status == "Bound" {
+				return false
+			}
+			if out[j].Status == "Bound" {
+				return true
+			}
+		}
+		return out[i].NS+out[i].Name < out[j].NS+out[j].Name
+	})
+	return out
+}
