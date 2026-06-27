@@ -35,7 +35,7 @@ Autentique no cluster como de costume e rode:
 
 ```bash
 ./koxente                          # abre em http://127.0.0.1:8200
-./koxente --context betgo-prd-eks  # já inicia neste contexto
+./koxente --context cluster-eks  # já inicia neste contexto
 ./koxente --port 9000              # troca a porta
 ./koxente --logs 80                # mais linhas de log no detalhe do pod
 ```
