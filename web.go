@@ -143,7 +143,7 @@ function esc(s){return(s==null?"":""+s).replace(/[&<>"]/g,function(c){return{"&"
 function api(p){return fetch(p).then(function(r){return r.json()})}
 function envBadge(e){return'<span class="badge '+(e||"other")+'">'+esc(e||"other")+'</span>'}
 function sev(s){return'<span class="dot s'+s+'">&#9679;</span>'}
-function applyNS(arr,f){if(!globalNS)return arr;f=f||"ns";return arr.filter(function(x){return x[f]===globalNS})}
+function applyNS(arr,f){arr=arr||[];f=f||"ns";if(!globalNS)return arr;return arr.filter(function(x){return x[f]===globalNS})}
 
 /* ---- nav ---- */
 function renderNav(){

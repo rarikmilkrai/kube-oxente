@@ -32,7 +32,7 @@ func invalidateListCache() {
 }
 
 // clusterScoped lista recursos sem -A (evita warning do kubectl)
-var clusterScoped = map[string]bool{"nodes": true, "hpa": true}
+var clusterScoped = map[string]bool{"nodes": true}
 
 func getList(kind string) []json.RawMessage {
 	ctx := effectiveContext()
