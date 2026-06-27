@@ -306,7 +306,7 @@ function rProblems(m){var seq=renderSeq;
    d.map(function(a){
     var grp=a.podCount>1?' <span class="pill">'+a.podCount+" pods</span>":"";
     var last=a.lastExit?" &middot; &uacute;lt. restart "+esc(a.lastExit)+" atr&aacute;s":"";
-    return'<tr class="clk" onclick="openDetail(\''+esc(a.ns)+"\',\'"+esc(a.samplePod)+"\',\'"+esc(a.sampleReason)+"\')">'
+    return'<tr class="clk" onclick="openDetail(\''+esc(a.ns)+'\',\''+esc(a.samplePod)+'\',\''+esc(a.sampleReason)+'\')">'
      +'<td>'+sev(a.severity)+'</td><td><b>'+esc(a.app)+"</b>"+grp+'<div class="muted" style="font-size:12px">'+esc(a.ns)+'</div></td>'
      +'<td>'+envBadge(a.env)+'</td><td class="s'+a.severity+'">'+esc(a.reason)+'<div class="muted" style="font-size:11px">restarts '+a.restarts+last+"</div></td>"
      +'<td class="diagln">'+esc(a.primaryDiag)+"</td></tr>";
@@ -339,7 +339,7 @@ function drawPods(){
  document.getElementById("pcount").textContent=d.length+" de "+podsCache.length;
  document.getElementById("pbody").innerHTML=d.map(function(p){
   var met=pMet(p.ns,p.name);
-  return'<tr class="clk" onclick="openDetail(\''+esc(p.ns)+"\',\'"+esc(p.name)+"\',\'"+esc(p.reason)+"\')">'
+  return'<tr class="clk" onclick="openDetail(\''+esc(p.ns)+'\',\''+esc(p.name)+'\',\''+esc(p.reason)+'\')">'
    +'<td>'+sev(p.severity)+'</td><td class="muted">'+esc(p.ns)+'</td><td>'+esc(p.name)+'</td>'
    +'<td>'+envBadge(p.env)+'</td><td class="s'+p.severity+'">'+esc(p.reason)+'</td>'
    +'<td>'+p.ready+"/"+p.total+'</td>'
