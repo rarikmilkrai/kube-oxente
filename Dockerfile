@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # ── Stage 1: compilar o binário Go (estático, sem CGO) ─────────────────────
-FROM golang:1.22-alpine AS builder
+FROM golang:1.24-alpine AS builder
 WORKDIR /src
 COPY go.mod .
 COPY *.go ./
@@ -13,7 +13,9 @@ FROM debian:bookworm-slim
 # TARGETARCH é preenchido automaticamente pelo docker buildx (amd64 ou arm64)
 ARG TARGETARCH=amd64
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && \
+    apt-get upgrade -y && \
+    apt-get install -y --no-install-recommends \
       ca-certificates curl unzip && \
     rm -rf /var/lib/apt/lists/*
 
