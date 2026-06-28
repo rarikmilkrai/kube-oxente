@@ -1,0 +1,15 @@
+services:
+  koxente:
+    image: rarikmilkrai/koxente:latest
+    ports:
+      - "8200:8200"
+    volumes:
+      # kubeconfig — contém os contextos e credenciais do cluster
+      - ${HOME}/.kube:/root/.kube:ro
+      # credenciais AWS — necessárias para EKS (aws eks get-token)
+      - ${HOME}/.aws:/root/.aws:ro
+    environment:
+      - AWS_PROFILE=${AWS_PROFILE:-default}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-}
+      - AWS_REGION=${AWS_REGION:-}
+    restart: unless-stopped

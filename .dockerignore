@@ -1,0 +1,18 @@
+# binários compilados localmente
+koxente
+kdash
+kdash-*
+koxente-*
+*.exe
+
+# git history não entra na imagem
+.git
+.gitignore
+
+# IDE
+.vscode
+.idea
+
+# temporários
+*.log
+*.tmp

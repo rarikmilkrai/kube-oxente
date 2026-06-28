@@ -2,7 +2,7 @@
 
 Painel web **read-only** de troubleshooting para clusters Kubernetes/EKS. Roda localmente, abre no navegador e mostra em tempo real a saúde do cluster — agrupando apps com falha, apontando a **causa provável** e sugerindo os comandos de diagnóstico certos.
 
-Escrito em Go puro, **zero dependências externas**: um binário único que usa o `kubectl` que você já tem autenticado.
+Escrito em Go puro: um binário único que usa o `kubectl` que você já tem autenticado. Disponível como binário nativo **ou imagem Docker** — sem instalar nada além do Docker.
 
 ---
 
@@ -14,7 +14,56 @@ Depois de autenticar num cluster, a triagem normal é uma sequência manual de `
 
 ## Instalação
 
-### Opção 1 — Binário pronto (sem Go instalado)
+### Opção 1 — Docker (sem instalar nada)
+
+> Inclui `kubectl` e AWS CLI v2 na imagem — funciona com EKS sem configuração extra.
+
+**Pré-requisitos:** Docker instalado e autenticado no cluster (`~/.kube` e `~/.aws` já configurados).
+
+```bash
+docker run -p 8200:8200 \
+  -v ~/.kube:/root/.kube:ro \
+  -v ~/.aws:/root/.aws:ro \
+  rarikmilkrai/koxente:latest
+```
+
+Acesse **http://localhost:8200** no navegador.
+
+**Variáveis de ambiente úteis:**
+
+```bash
+docker run -p 8200:8200 \
+  -v ~/.kube:/root/.kube:ro \
+  -v ~/.aws:/root/.aws:ro \
+  -e AWS_PROFILE=meu-perfil \
+  -e AWS_DEFAULT_REGION=sa-east-1 \
+  rarikmilkrai/koxente:latest --context meu-cluster
+```
+
+**Com docker-compose** (salve como `docker-compose.yml`):
+
+```yaml
+services:
+  koxente:
+    image: rarikmilkrai/koxente:latest
+    ports:
+      - "8200:8200"
+    volumes:
+      - ${HOME}/.kube:/root/.kube:ro
+      - ${HOME}/.aws:/root/.aws:ro
+    environment:
+      - AWS_PROFILE=${AWS_PROFILE:-default}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-}
+    restart: unless-stopped
+```
+
+```bash
+docker-compose up -d
+```
+
+---
+
+### Opção 2 — Binário pronto (sem Go instalado)
 
 Baixe o binário da sua plataforma na [página de releases](../../releases):
 
@@ -34,7 +83,7 @@ mv koxente-linux-amd64 /usr/local/bin/koxente
 .\koxente-windows-amd64.exe
 ```
 
-### Opção 2 — Compilar com Go 1.22+
+### Opção 3 — Compilar com Go 1.22+
 
 ```bash
 git clone <url-do-repo> koxente
@@ -133,6 +182,7 @@ Abra o endereço no navegador. O servidor escuta apenas em `127.0.0.1` — ningu
 | Flag | Padrão | Descrição |
 |---|---|---|
 | `--port` | `8200` | Porta do painel web |
+| `--host` | `127.0.0.1` | Endereço de escuta (`0.0.0.0` para Docker/rede) |
 | `--context` | (atual) | Contexto kubeconfig inicial |
 | `--logs` | `40` | Linhas de log no detalhe de cada pod |
 
@@ -193,6 +243,24 @@ A engine cruza o `reason` do pod + eventos + logs e aponta a causa provável com
 
 ---
 
+## Publicar nova versão no Docker Hub
+
+```bash
+# 1. Login (uma vez)
+docker login
+
+# 2. Criar o builder multi-arch (uma vez)
+docker buildx create --use --name multiarch
+
+# 3. Build + push para linux/amd64 e linux/arm64
+make docker-release VERSION=1.0.0
+
+# ou apenas latest:
+make docker-push
+```
+
+---
+
 ## Segurança
 
 - **Somente leitura.** O koxente executa apenas `kubectl get` e `kubectl logs`. Não cria, edita nem apaga nada.
@@ -214,15 +282,16 @@ web.go       interface completa (HTML/CSS/JS embutidos no binário)
 
 ## Roadmap
 
-- [ ] Gráficos de uso de CPU/memória por pod e nó (via `kubectl top`)
-- [ ] Filtro global de namespace no topo da interface
-- [ ] Streaming de logs em tempo real (WebSocket)
-- [ ] Exportar relatório HTML/Markdown para anexar em ticket
-- [ ] ConfigMaps viewer (metadados e chaves)
-- [ ] Resource Quotas por namespace
-- [ ] Imagem Docker oficial para rodar sem instalar nada
+- [x] Gráficos de uso de CPU/memória por pod e nó (via `kubectl top`)
+- [x] Filtro global de namespace no topo da interface
+- [x] Streaming de logs em tempo real (SSE)
+- [x] Exportar relatório HTML para anexar em ticket
+- [x] ConfigMaps viewer (metadados e chaves)
+- [x] Resource Quotas por namespace
+- [x] Imagem Docker oficial (`rarikmilkrai/koxente`)
+- [x] Histórico de restarts com mini-gráfico de linha
 - [ ] Aba de comparação entre contextos (multi-cluster side-by-side)
-- [ ] Histórico de restarts com mini-gráfico de linha
+- [ ] Alertas configuráveis (threshold de restarts, pods pending há N min)
 
 ---
 
