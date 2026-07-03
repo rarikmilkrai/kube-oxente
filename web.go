@@ -317,10 +317,12 @@ function rProblems(m){var seq=renderSeq;
 function rPods(m){var seq=renderSeq;
  api("/api/pods").then(function(d){
   if(renderSeq!==seq)return;setGen();podsCache=d;trackRst(d);
+  var envOpt=function(v,l){return'<option value="'+v+'"'+(filt.env===v?" selected":"")+'>'+l+"</option>"};
+  var stOpt=function(v,l){return'<option value="'+v+'"'+(filt.st===v?" selected":"")+'>'+l+"</option>"};
   m.innerHTML='<h2>Pods</h2><div class="filters">'
-   +'<select id="fenv" onchange="filt.env=this.value;drawPods()"><option value="">todos ambientes</option><option>prod</option><option>staging</option><option>dev</option><option>other</option></select>'
-   +'<select id="fst" onchange="filt.st=this.value;drawPods()"><option value="">todos status</option><option value="2">problema</option><option value="1">aten&ccedil;&atilde;o</option><option value="0">ok</option></select>'
-   +'<input type="text" id="fq" placeholder="filtrar por nome/namespace&#8230;" oninput="filt.q=this.value;drawPods()">'
+   +'<select id="fenv" onchange="filt.env=this.value;drawPods()">'+envOpt("","todos ambientes")+envOpt("prod","prod")+envOpt("staging","staging")+envOpt("dev","dev")+envOpt("other","other")+'</select>'
+   +'<select id="fst" onchange="filt.st=this.value;drawPods()">'+stOpt("","todos status")+stOpt("2","problema")+stOpt("1","aten&ccedil;&atilde;o")+stOpt("0","ok")+'</select>'
+   +'<input type="text" id="fq" placeholder="filtrar por nome/namespace&#8230;" value="'+esc(filt.q)+'" oninput="filt.q=this.value;drawPods()">'
    +'<span class="muted" id="pcount"></span></div>'
    +'<table><thead><tr><th></th><th>Namespace</th><th>Pod</th><th>Amb.</th><th>Status</th>'
    +'<th>Ready</th><th>Restarts</th><th>CPU</th><th>Mem</th><th>Idade</th><th>N&oacute;</th>'
