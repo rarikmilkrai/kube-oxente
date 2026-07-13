@@ -127,7 +127,7 @@ var VIEWS=[
  {id:"namespaces",ico:"&#9783;", label:"Namespaces"},
  {id:"events",    ico:"&#9993;", label:"Eventos"},
  {id:"nodes",     ico:"&#9636;", label:"N&oacute;s"},
- {id:"ingresses", ico:"&#8599;", label:"Ingresses"},
+ {id:"network",   ico:"&#8599;", label:"Rede"},
  {id:"cronjobs",  ico:"&#9711;", label:"CronJobs"},
  {id:"hpas",      ico:"&#8645;", label:"HPA"},
  {id:"pvcs",      ico:"&#9644;", label:"PVCs"},
@@ -227,7 +227,7 @@ function render(){
  var m=document.getElementById("main");
  var fns={overview:rOverview,problems:rProblems,pods:rPods,workloads:rWorkloads,
   services:rServices,namespaces:rNamespaces,events:rEvents,nodes:rNodes,
-  ingresses:rIngresses,cronjobs:rCronJobs,hpas:rHPAs,pvcs:rPVCs,
+  network:rNetwork,cronjobs:rCronJobs,hpas:rHPAs,pvcs:rPVCs,
   configmaps:rConfigMaps,quotas:rQuotas};
  (fns[view]||rOverview)(m);
 }
@@ -377,10 +377,14 @@ function rServices(m){var seq=renderSeq;
  api("/api/services").then(function(d){
   if(renderSeq!==seq)return;setGen();d=applyNS(d,"ns");
   m.innerHTML='<h2>Services</h2>'
-   +'<table><thead><tr><th>Namespace</th><th>Nome</th><th>Tipo</th><th>ClusterIP</th><th>Portas</th><th>Amb.</th></tr></thead><tbody>'
-   +d.map(function(s){return'<tr><td class="muted">'+esc(s.ns)+'</td><td>'+esc(s.name)+'</td><td>'+esc(s.type)+'</td>'
-    +'<td class="mono muted">'+esc(s.ip)+'</td><td class="mono">'+esc(s.ports)+'</td><td>'+envBadge(s.env)+'</td></tr>'}).join("")
-   +(d.length?"":'<tr><td colspan="6" class="empty">nenhum service</td></tr>')
+   +'<table><thead><tr><th>Namespace</th><th>Nome</th><th>Tipo</th><th>ClusterIP</th><th>Portas</th><th>Endpoints</th><th>Amb.</th></tr></thead><tbody>'
+   +d.map(function(s){
+    var epTxt=(s.readyEps||s.notReadyEps)
+     ?('<span class="ok">'+s.readyEps+' pronto</span>'+(s.notReadyEps?' <span class="s1">+'+s.notReadyEps+' n&atilde;o pronto</span>':""))
+     :(s.orphan?'<span class="s2">sem endpoint</span>':'<span class="muted">&#8210;</span>');
+    return'<tr><td class="muted">'+esc(s.ns)+'</td><td>'+esc(s.name)+'</td><td>'+esc(s.type)+'</td>'
+    +'<td class="mono muted">'+esc(s.ip)+'</td><td class="mono">'+esc(s.ports)+'</td><td>'+epTxt+'</td><td>'+envBadge(s.env)+'</td></tr>'}).join("")
+   +(d.length?"":'<tr><td colspan="7" class="empty">nenhum service</td></tr>')
    +'</tbody></table>';
  });
 }
@@ -429,18 +433,96 @@ function rNodes(m){var seq=renderSeq;
  });
 }
 
-function rIngresses(m){var seq=renderSeq;
- api("/api/ingresses").then(function(d){
-  if(renderSeq!==seq)return;setGen();d=applyNS(d,"ns");counts.ingresses=d.length;renderNav();
-  m.innerHTML='<h2>Ingresses <span class="muted" style="font-size:13px">'+d.length+" entradas</span></h2>"
+function rNetwork(m){var seq=renderSeq;
+ Promise.all([api("/api/ingresses"),api("/api/services"),api("/api/netinfo")]).then(function(res){
+  if(renderSeq!==seq)return;setGen();
+  var ing=applyNS(res[0],"ns"),svc=applyNS(res[1],"ns"),net=res[2];
+  counts.network=ing.length;renderNav();
+
+  var probSvc=svc.filter(function(s){return s.orphan||(s.portMismatch&&s.portMismatch.length)});
+
+  var h='<h2>Rede</h2>';
+
+  h+='<h3 class="muted">Endpoints <span class="muted" style="font-size:12px">'+probSvc.length+" com problema</span></h3>";
+  if(!probSvc.length){
+   h+='<div class="empty">&#10003; nenhum Service &oacute;rf&atilde;o ou com mismatch de porta'+(globalNS?" em "+esc(globalNS):"")+"</div>";
+  }else{
+   h+='<table><thead><tr><th>Namespace</th><th>Service</th><th>Problema</th><th>Amb.</th></tr></thead><tbody>'
+    +probSvc.map(function(s){
+     var probs=[];
+     if(s.orphan)probs.push('<span class="s2">sem endpoint pronto (selector n&atilde;o casa com nenhum pod saud&aacute;vel)</span>');
+     if(s.portMismatch&&s.portMismatch.length)probs.push('<span class="s1">porta(s) '+s.portMismatch.map(esc).join(", ")+' sem container correspondente</span>');
+     return'<tr><td class="muted">'+esc(s.ns)+'</td><td>'+esc(s.name)+'</td><td>'+probs.join("<br>")+'</td><td>'+envBadge(s.env)+'</td></tr>';
+    }).join("")
+    +'</tbody></table>';
+  }
+
+  h+='<h3 class="muted" style="margin-top:18px">NetworkPolicy</h3>';
+  if(!net.netpolicyTotal){
+   h+='<div class="empty">nenhuma NetworkPolicy encontrada no cluster &mdash; sem um agente de enforcement (Calico/Cilium/VPC CNI NetworkPolicy), todo o tr&aacute;fego entre pods &eacute; permitido por padr&atilde;o</div>';
+  }else{
+   var npRows=applyNS(net.netpolicy,"ns");
+   var unprot=npRows.filter(function(n){return n.unprotected&&n.pods>0}).length;
+   h+='<div class="muted" style="font-size:12px;margin-bottom:6px">'+net.netpolicyTotal+' policy(ies) no cluster'
+    +(unprot?' &middot; <span class="s1">'+unprot+' namespace(s) sem cobertura</span>':"")+'</div>'
+    +'<table><thead><tr><th>Namespace</th><th>Policies</th><th>Pods</th><th>Cobertura</th><th>Amb.</th></tr></thead><tbody>'
+    +npRows.map(function(n){
+     var cov=n.unprotected?'<span class="s1">sem policy (tr&aacute;fego aberto)</span>':'<span class="ok">'+n.policies+" policy(ies)</span>";
+     return'<tr><td class="muted">'+esc(n.ns)+'</td><td>'+n.policies+'</td><td>'+n.pods+'</td><td>'+cov+'</td><td>'+envBadge(n.env)+'</td></tr>';
+    }).join("")
+    +'</tbody></table>';
+  }
+
+  h+='<h3 class="muted" style="margin-top:18px">CNI (VPC CNI / aws-node)</h3>';
+  if(!net.cni||!net.cni.found){
+   h+='<div class="empty">DaemonSet aws-node n&atilde;o encontrado (n&atilde;o &eacute; EKS com VPC CNI, ou sem permiss&atilde;o)</div>';
+  }else{
+   var cniOk=net.cni.readyNodes>=net.cni.desiredNodes;
+   h+='<div class="wl"><span>Pods aws-node prontos</span><span class="'+(cniOk?"ok":"bad")+'">'+net.cni.readyNodes+"/"+net.cni.desiredNodes+'</span></div>'
+    +'<div class="wl"><span>External SNAT</span><span class="mono">'+esc(net.cni.externalSnat||"false (padr&atilde;o)")+'</span></div>'
+    +'<div class="wl"><span>WARM_IP_TARGET</span><span class="mono">'+esc(net.cni.warmIpTarget||"&#8210;")+'</span></div>'
+    +'<div class="wl"><span>MINIMUM_IP_TARGET</span><span class="mono">'+esc(net.cni.minimumIpTarget||"&#8210;")+'</span></div>'
+    +'<div class="wl"><span>WARM_ENI_TARGET</span><span class="mono">'+esc(net.cni.warmEniTarget||"&#8210;")+'</span></div>';
+  }
+
+  h+='<h3 class="muted" style="margin-top:18px">CoreDNS</h3>';
+  if(!net.dns||!net.dns.found){
+   h+='<div class="empty">Deployment coredns n&atilde;o encontrado</div>';
+  }else{
+   var dnsOk=net.dns.ready>=net.dns.desired;
+   h+='<div class="wl"><span>R&eacute;plicas prontas</span><span class="'+(dnsOk?"ok":"bad")+'">'+net.dns.ready+"/"+net.dns.desired+'</span></div>'
+    +'<div class="wl"><span>Forwarders</span><span class="mono">'+esc(net.dns.forwarders||"padr&atilde;o (sem forward customizado)")+'</span></div>';
+  }
+
+  var tgb=applyNS(net.targetGroupBindings||[],"ns");
+  if(tgb.length){
+   h+='<h3 class="muted" style="margin-top:18px">Target Group Bindings <span class="muted" style="font-size:12px">'+tgb.length+"</span></h3>"
+    +'<table><thead><tr><th>Namespace</th><th>Nome</th><th>Service</th><th>Tipo</th><th>Target Group ARN</th></tr></thead><tbody>'
+    +tgb.map(function(t){return'<tr><td class="muted">'+esc(t.ns)+'</td><td>'+esc(t.name)+'</td><td>'+esc(t.serviceName)+'</td>'
+     +'<td class="mono">'+esc(t.targetType)+'</td><td class="mono" style="font-size:11px">'+esc(t.targetGroupArn)+'</td></tr>'}).join("")
+    +'</tbody></table>';
+  }
+
+  var sgp=applyNS(net.securityGroupPolicies||[],"ns");
+  if(sgp.length){
+   h+='<h3 class="muted" style="margin-top:18px">Security Group Policies <span class="muted" style="font-size:12px">'+sgp.length+"</span></h3>"
+    +'<table><thead><tr><th>Namespace</th><th>Nome</th><th>Security Groups</th></tr></thead><tbody>'
+    +sgp.map(function(s){return'<tr><td class="muted">'+esc(s.ns)+'</td><td>'+esc(s.name)+'</td>'
+     +'<td class="mono">'+esc((s.securityGroups||[]).join(", "))+'</td></tr>'}).join("")
+    +'</tbody></table>';
+  }
+
+  h+='<h3 class="muted" style="margin-top:18px">Ingress <span class="muted" style="font-size:12px">'+ing.length+" entradas</span></h3>"
    +'<table><thead><tr><th>Namespace</th><th>Nome</th><th>Classe</th><th>Hosts</th><th>Endere&ccedil;o</th><th>Portas</th><th>Amb.</th><th>Idade</th></tr></thead><tbody>'
-   +d.map(function(r){return'<tr><td class="muted">'+esc(r.ns)+'</td><td>'+esc(r.name)+'</td>'
+   +ing.map(function(r){return'<tr><td class="muted">'+esc(r.ns)+'</td><td>'+esc(r.name)+'</td>'
     +'<td class="muted mono">'+esc(r.class||"-")+'</td>'
     +'<td class="mono" style="font-size:12px">'+esc(r.hosts||"-")+'</td>'
     +'<td class="muted mono" style="font-size:12px">'+esc(r.address||"pendente")+'</td>'
     +'<td class="mono">'+esc(r.ports)+'</td><td>'+envBadge(r.env)+'</td><td>'+esc(r.age)+'</td></tr>'}).join("")
-   +(d.length?"":'<tr><td colspan="8" class="empty">nenhum ingress</td></tr>')
+   +(ing.length?"":'<tr><td colspan="8" class="empty">nenhum ingress</td></tr>')
    +'</tbody></table>';
+
+  m.innerHTML=h;
  });
 }
 

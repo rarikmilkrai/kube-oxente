@@ -26,7 +26,7 @@ func setActiveContext(c string) {
 	ctxMu.Unlock()
 	invalidateListCache()
 }
-func getActiveContext() string  { ctxMu.RLock(); defer ctxMu.RUnlock(); return activeCtx }
+func getActiveContext() string { ctxMu.RLock(); defer ctxMu.RUnlock(); return activeCtx }
 
 // kubectl executa kubectl já injetando --context se houver um ativo.
 func kubectl(args ...string) ([]byte, error) {
@@ -100,7 +100,11 @@ type pod struct {
 			Name string `json:"name"`
 		} `json:"initContainers"`
 		Containers []struct {
-			Name string `json:"name"`
+			Name  string `json:"name"`
+			Ports []struct {
+				Name          string `json:"name"`
+				ContainerPort int    `json:"containerPort"`
+			} `json:"ports"`
 		} `json:"containers"`
 	} `json:"spec"`
 	Status struct {

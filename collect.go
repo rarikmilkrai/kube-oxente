@@ -3,6 +3,7 @@ package main
 
 import (
 	"encoding/json"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -455,25 +456,111 @@ func collectWorkloads() []wlRow {
 // ---------------- services ----------------
 
 type svcRow struct {
-	NS    string `json:"ns"`
-	Name  string `json:"name"`
-	Type  string `json:"type"`
-	IP    string `json:"ip"`
-	Ports string `json:"ports"`
-	Env   string `json:"env"`
+	NS           string   `json:"ns"`
+	Name         string   `json:"name"`
+	Type         string   `json:"type"`
+	IP           string   `json:"ip"`
+	Ports        string   `json:"ports"`
+	Env          string   `json:"env"`
+	ReadyEps     int      `json:"readyEps"`
+	NotReadyEps  int      `json:"notReadyEps"`
+	Orphan       bool     `json:"orphan"`       // tem selector mas zero endpoint pronto
+	PortMismatch []string `json:"portMismatch"` // portas do Service sem container correspondente
+}
+
+// intOrString cobre o campo targetPort do Service, que no JSON vem como número ou string (porta nomeada).
+type intOrString struct {
+	IntVal int
+	StrVal string
+	IsStr  bool
+}
+
+func (v *intOrString) UnmarshalJSON(b []byte) error {
+	if len(b) > 0 && b[0] == '"' {
+		v.IsStr = true
+		return json.Unmarshal(b, &v.StrVal)
+	}
+	return json.Unmarshal(b, &v.IntVal)
+}
+
+func matchSelector(sel, labels map[string]string) bool {
+	if len(sel) == 0 {
+		return false
+	}
+	for k, v := range sel {
+		if labels[k] != v {
+			return false
+		}
+	}
+	return true
+}
+
+// anyContainerHasPort verifica se algum container dos pods casados declara a porta-alvo.
+// portsDeclared indica se havia alguma porta declarada nos pods (pra não falsear "mismatch"
+// quando o pod simplesmente não declara containerPort, o que é opcional e comum em k8s).
+func anyContainerHasPort(pods []pod, tp *intOrString, fallback int) (found, portsDeclared bool) {
+	for _, p := range pods {
+		for _, c := range p.Spec.Containers {
+			for _, cp := range c.Ports {
+				portsDeclared = true
+				if tp != nil && tp.IsStr {
+					if cp.Name == tp.StrVal {
+						found = true
+					}
+				} else {
+					want := fallback
+					if tp != nil {
+						want = tp.IntVal
+					}
+					if cp.ContainerPort == want {
+						found = true
+					}
+				}
+			}
+		}
+	}
+	return
+}
+
+func collectEndpointCounts() map[string][2]int {
+	out := map[string][2]int{}
+	for _, raw := range getList("endpoints") {
+		var e struct {
+			Metadata struct{ Name, Namespace string } `json:"metadata"`
+			Subsets  []struct {
+				Addresses         []struct{} `json:"addresses"`
+				NotReadyAddresses []struct{} `json:"notReadyAddresses"`
+			} `json:"subsets"`
+		}
+		if json.Unmarshal(raw, &e) != nil {
+			continue
+		}
+		var ready, notReady int
+		for _, ss := range e.Subsets {
+			ready += len(ss.Addresses)
+			notReady += len(ss.NotReadyAddresses)
+		}
+		out[e.Metadata.Namespace+"/"+e.Metadata.Name] = [2]int{ready, notReady}
+	}
+	return out
 }
 
 func collectServices() []svcRow {
+	pods := allPods()
+	epCounts := collectEndpointCounts()
+
 	var out []svcRow
 	for _, raw := range getList("services") {
 		var s struct {
 			Metadata struct{ Name, Namespace string } `json:"metadata"`
 			Spec     struct {
-				Type      string `json:"type"`
-				ClusterIP string `json:"clusterIP"`
+				Type      string            `json:"type"`
+				ClusterIP string            `json:"clusterIP"`
+				Selector  map[string]string `json:"selector"`
 				Ports     []struct {
-					Port     int    `json:"port"`
-					Protocol string `json:"protocol"`
+					Port       int          `json:"port"`
+					Protocol   string       `json:"protocol"`
+					TargetPort *intOrString `json:"targetPort"`
 				} `json:"ports"`
 			} `json:"spec"`
 		}
@@ -484,10 +571,32 @@ func collectServices() []svcRow {
 		for _, p := range s.Spec.Ports {
 			ports = append(ports, itoa(p.Port)+"/"+p.Protocol)
 		}
-		out = append(out, svcRow{
+		eps := epCounts[s.Metadata.Namespace+"/"+s.Metadata.Name]
+		row := svcRow{
 			NS: s.Metadata.Namespace, Name: s.Metadata.Name, Type: s.Spec.Type,
 			IP: s.Spec.ClusterIP, Ports: strings.Join(ports, ","), Env: classifyEnv(s.Metadata.Namespace),
-		})
+			ReadyEps: eps[0], NotReadyEps: eps[1],
+		}
+
+		if len(s.Spec.Selector) > 0 && s.Spec.Type != "ExternalName" {
+			row.Orphan = eps[0] == 0
+
+			var matched []pod
+			for _, pv := range pods {
+				if pv.Metadata.Namespace == s.Metadata.Namespace && matchSelector(s.Spec.Selector, pv.Metadata.Labels) {
+					matched = append(matched, pv.pod)
+				}
+			}
+			if len(matched) > 0 {
+				for _, p := range s.Spec.Ports {
+					found, declared := anyContainerHasPort(matched, p.TargetPort, p.Port)
+					if declared && !found {
+						row.PortMismatch = append(row.PortMismatch, itoa(p.Port))
+					}
+				}
+			}
+		}
+		out = append(out, row)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].NS+out[i].Name < out[j].NS+out[j].Name })
 	return out
@@ -1198,4 +1307,231 @@ func collectPVCs() []pvcRow {
 		return out[i].NS+out[i].Name < out[j].NS+out[j].Name
 	})
 	return out
+}
+
+// ---------------- rede: NetworkPolicy, CNI, CoreDNS, TargetGroupBinding/SecurityGroupPolicy ----------------
+
+type netpolNSRow struct {
+	NS          string `json:"ns"`
+	Env         string `json:"env"`
+	Policies    int    `json:"policies"`
+	Pods        int    `json:"pods"`
+	Unprotected bool   `json:"unprotected"`
+}
+
+func collectNetworkPolicyCoverage() (rows []netpolNSRow, total int) {
+	podCountByNS := map[string]int{}
+	for _, pv := range allPods() {
+		podCountByNS[pv.Metadata.Namespace]++
+	}
+
+	polCountByNS := map[string]int{}
+	for _, raw := range getList("networkpolicies") {
+		var np struct {
+			Metadata struct{ Namespace string } `json:"metadata"`
+		}
+		if json.Unmarshal(raw, &np) != nil {
+			continue
+		}
+		polCountByNS[np.Metadata.Namespace]++
+		total++
+	}
+
+	var nsNames []string
+	for ns := range podCountByNS {
+		nsNames = append(nsNames, ns)
+	}
+	sort.Strings(nsNames)
+
+	for _, ns := range nsNames {
+		rows = append(rows, netpolNSRow{
+			NS: ns, Env: classifyEnv(ns), Policies: polCountByNS[ns], Pods: podCountByNS[ns],
+			Unprotected: polCountByNS[ns] == 0,
+		})
+	}
+	return
+}
+
+type cniInfo struct {
+	Found           bool   `json:"found"`
+	DesiredNodes    int    `json:"desiredNodes"`
+	ReadyNodes      int    `json:"readyNodes"`
+	ExternalSNAT    string `json:"externalSnat"`
+	WarmIPTarget    string `json:"warmIpTarget"`
+	MinimumIPTarget string `json:"minimumIpTarget"`
+	WarmENITarget   string `json:"warmEniTarget"`
+}
+
+func collectCNI() cniInfo {
+	out, err := kubectl("get", "ds", "aws-node", "-n", "kube-system", "-o", "json")
+	if err != nil {
+		return cniInfo{}
+	}
+	var ds struct {
+		Status struct {
+			DesiredNumberScheduled int `json:"desiredNumberScheduled"`
+			NumberReady            int `json:"numberReady"`
+		} `json:"status"`
+		Spec struct {
+			Template struct {
+				Spec struct {
+					Containers []struct {
+						Name string `json:"name"`
+						Env  []struct {
+							Name  string `json:"name"`
+							Value string `json:"value"`
+						} `json:"env"`
+					} `json:"containers"`
+				} `json:"spec"`
+			} `json:"template"`
+		} `json:"spec"`
+	}
+	if json.Unmarshal(out, &ds) != nil {
+		return cniInfo{}
+	}
+	info := cniInfo{Found: true, DesiredNodes: ds.Status.DesiredNumberScheduled, ReadyNodes: ds.Status.NumberReady}
+	for _, c := range ds.Spec.Template.Spec.Containers {
+		if c.Name != "aws-node" {
+			continue
+		}
+		for _, e := range c.Env {
+			switch e.Name {
+			case "AWS_VPC_K8S_CNI_EXTERNALSNAT":
+				info.ExternalSNAT = e.Value
+			case "WARM_IP_TARGET":
+				info.WarmIPTarget = e.Value
+			case "MINIMUM_IP_TARGET":
+				info.MinimumIPTarget = e.Value
+			case "WARM_ENI_TARGET":
+				info.WarmENITarget = e.Value
+			}
+		}
+	}
+	return info
+}
+
+type dnsInfo struct {
+	Found      bool   `json:"found"`
+	Desired    int    `json:"desired"`
+	Ready      int    `json:"ready"`
+	Forwarders string `json:"forwarders"`
+}
+
+var reCoreDNSForward = regexp.MustCompile(`(?m)^\s*forward\s+(\S+)\s+(.+?)\s*(?:\{|$)`)
+
+func collectDNS() dnsInfo {
+	out, err := kubectl("get", "deploy", "coredns", "-n", "kube-system", "-o", "json")
+	if err != nil {
+		return dnsInfo{}
+	}
+	var d struct {
+		Status struct {
+			Replicas      int `json:"replicas"`
+			ReadyReplicas int `json:"readyReplicas"`
+		} `json:"status"`
+	}
+	if json.Unmarshal(out, &d) != nil {
+		return dnsInfo{}
+	}
+	info := dnsInfo{Found: true, Desired: d.Status.Replicas, Ready: d.Status.ReadyReplicas}
+	if cm, err := kubectl("get", "configmap", "coredns", "-n", "kube-system", "-o", "jsonpath={.data.Corefile}"); err == nil {
+		if m := reCoreDNSForward.FindStringSubmatch(string(cm)); len(m) == 3 {
+			info.Forwarders = strings.TrimSpace(m[1] + " -> " + m[2])
+		}
+	}
+	return info
+}
+
+type tgbRow struct {
+	NS             string `json:"ns"`
+	Name           string `json:"name"`
+	ServiceName    string `json:"serviceName"`
+	TargetType     string `json:"targetType"`
+	TargetGroupARN string `json:"targetGroupArn"`
+}
+
+func collectTargetGroupBindings() []tgbRow {
+	out, err := kubectl("get", "targetgroupbindings", "-A", "-o", "json")
+	if err != nil {
+		return nil
+	}
+	var lr listResp
+	if json.Unmarshal(out, &lr) != nil {
+		return nil
+	}
+	var rows []tgbRow
+	for _, raw := range lr.Items {
+		var t struct {
+			Metadata struct{ Name, Namespace string } `json:"metadata"`
+			Spec     struct {
+				ServiceRef struct {
+					Name string `json:"name"`
+				} `json:"serviceRef"`
+				TargetType     string `json:"targetType"`
+				TargetGroupARN string `json:"targetGroupARN"`
+			} `json:"spec"`
+		}
+		if json.Unmarshal(raw, &t) != nil {
+			continue
+		}
+		rows = append(rows, tgbRow{
+			NS: t.Metadata.Namespace, Name: t.Metadata.Name, ServiceName: t.Spec.ServiceRef.Name,
+			TargetType: t.Spec.TargetType, TargetGroupARN: t.Spec.TargetGroupARN,
+		})
+	}
+	sort.Slice(rows, func(i, j int) bool { return rows[i].NS+rows[i].Name < rows[j].NS+rows[j].Name })
+	return rows
+}
+
+type sgpRow struct {
+	NS             string   `json:"ns"`
+	Name           string   `json:"name"`
+	SecurityGroups []string `json:"securityGroups"`
+}
+
+func collectSecurityGroupPolicies() []sgpRow {
+	out, err := kubectl("get", "securitygrouppolicies", "-A", "-o", "json")
+	if err != nil {
+		return nil
+	}
+	var lr listResp
+	if json.Unmarshal(out, &lr) != nil {
+		return nil
+	}
+	var rows []sgpRow
+	for _, raw := range lr.Items {
+		var s struct {
+			Metadata struct{ Name, Namespace string } `json:"metadata"`
+			Spec     struct {
+				SecurityGroups struct {
+					GroupIDs []string `json:"groupIds"`
+				} `json:"securityGroups"`
+			} `json:"spec"`
+		}
+		if json.Unmarshal(raw, &s) != nil {
+			continue
+		}
+		rows = append(rows, sgpRow{NS: s.Metadata.Namespace, Name: s.Metadata.Name, SecurityGroups: s.Spec.SecurityGroups.GroupIDs})
+	}
+	sort.Slice(rows, func(i, j int) bool { return rows[i].NS+rows[i].Name < rows[j].NS+rows[j].Name })
+	return rows
+}
+
+type networkExtra struct {
+	NetPolicy        []netpolNSRow `json:"netpolicy"`
+	NetPolicyTotal   int           `json:"netpolicyTotal"`
+	CNI              cniInfo       `json:"cni"`
+	DNS              dnsInfo       `json:"dns"`
+	TargetGroupBinds []tgbRow      `json:"targetGroupBindings"`
+	SecurityGroupPol []sgpRow      `json:"securityGroupPolicies"`
+}
+
+func collectNetworkExtra() networkExtra {
+	rows, total := collectNetworkPolicyCoverage()
+	return networkExtra{
+		NetPolicy: rows, NetPolicyTotal: total,
+		CNI: collectCNI(), DNS: collectDNS(),
+		TargetGroupBinds: collectTargetGroupBindings(),
+		SecurityGroupPol: collectSecurityGroupPolicies(),
+	}
 }

@@ -59,6 +59,7 @@ func main() {
 	mux.HandleFunc("/api/metrics",     func(w http.ResponseWriter, r *http.Request) { writeJSON(w, collectMetrics()) })
 	mux.HandleFunc("/api/quotas",      func(w http.ResponseWriter, r *http.Request) { writeJSON(w, collectQuotas()) })
 	mux.HandleFunc("/api/configmaps",  func(w http.ResponseWriter, r *http.Request) { writeJSON(w, collectConfigMaps()) })
+	mux.HandleFunc("/api/netinfo",     func(w http.ResponseWriter, r *http.Request) { writeJSON(w, collectNetworkExtra()) })
 	mux.HandleFunc("/api/detail", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
 		writeJSON(w, collectDetail(q.Get("ns"), q.Get("name"), q.Get("reason"), *logLines))
