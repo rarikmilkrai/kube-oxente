@@ -2,7 +2,7 @@ package main
 
 const indexHTML = `<!doctype html><html lang="pt-br"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>koxente</title>
+<title>Kube Oxente</title>
 <style>
 :root{
  --bg:#0e1016;--panel:#161922;--panel2:#1d212c;--bd:#262b38;--fg:#e7e9ef;--mut:#8a93a6;
@@ -101,7 +101,7 @@ input[type=text]{background:var(--panel2);color:var(--fg);border:1px solid var(-
 </style></head><body>
 <div class="app">
  <header>
-  <span class="brand">koxente</span>
+  <span class="brand">Kube Oxente</span>
   <select id="ctxsel" onchange="switchCtx()"></select>
   <span class="badge" id="envb"></span>
   <select id="nsGlobal" onchange="setNS(this.value)" title="Filtrar namespace"></select>
@@ -135,7 +135,7 @@ var VIEWS=[
  {id:"quotas",    ico:"&#9632;", label:"Quotas"}
 ];
 
-var view="overview",auto=true,timer=null,counts={},podsCache=[],filt={env:"",q:"",st:""},renderSeq=0;
+var view="overview",auto=true,timer=null,counts={},podsCache=[],filt={env:"",q:"",st:"",app:""},renderSeq=0;
 var globalNS="",metCache={pods:[],nodes:[],_pm:{},_nm:{}},rstHist={},liveLogSrc=null;
 var _detNS="",_detName="";
 
@@ -186,6 +186,7 @@ function loadMetrics(){
   metCache=d;metCache._pm={};metCache._nm={};
   (d.pods||[]).forEach(function(p){metCache._pm[p.ns+"/"+p.name]=p});
   (d.nodes||[]).forEach(function(n){metCache._nm[n.name]=n});
+  if(_detName)updateDetMetrics(_detNS,_detName);
  });
 }
 function pMet(ns,name){return metCache._pm[ns+"/"+name]||null}
@@ -237,7 +238,7 @@ function exportReport(){
  var m=document.getElementById("main");
  var ctx=document.getElementById("ctxsel").value||"cluster";
  var ts=new Date().toLocaleString("pt-BR");
- var h='<!doctype html><html><head><meta charset="utf-8"><title>koxente — '+esc(ctx)+'</title>'+
+ var h='<!doctype html><html><head><meta charset="utf-8"><title>Kube Oxente — '+esc(ctx)+'</title>'+
   '<style>body{font:13px system-ui;background:#fff;color:#1a1a1a;padding:24px;max-width:1280px;margin:0 auto}'+
   'h1{margin:0 0 4px}p.ts{color:#888;font-size:12px;margin:0 0 20px}'+
   'table{width:100%;border-collapse:collapse;margin-bottom:20px;font-size:12px}'+
@@ -250,7 +251,7 @@ function exportReport(){
   '.sec{border:1px solid #e2e2e2;border-radius:8px;padding:14px;margin-bottom:16px}'+
   '.sec h3{margin:0 0 10px;font-size:11px;color:#888;text-transform:uppercase;letter-spacing:.5px}'+
   '</style></head><body>'+
-  '<h1>koxente — '+esc(ctx)+'</h1>'+
+  '<h1>Kube Oxente — '+esc(ctx)+'</h1>'+
   '<p class="ts">Exportado em '+esc(ts)+(globalNS?" &middot; namespace: "+esc(globalNS):"")+"</p>"+
   m.innerHTML+"</body></html>";
  var a=document.createElement("a");
@@ -319,7 +320,14 @@ function rPods(m){var seq=renderSeq;
   if(renderSeq!==seq)return;setGen();podsCache=d;trackRst(d);
   var envOpt=function(v,l){return'<option value="'+v+'"'+(filt.env===v?" selected":"")+'>'+l+"</option>"};
   var stOpt=function(v,l){return'<option value="'+v+'"'+(filt.st===v?" selected":"")+'>'+l+"</option>"};
+  var appOpt=function(v,l){return'<option value="'+esc(v)+'"'+(filt.app===v?" selected":"")+'>'+esc(l)+"</option>"};
+  var scoped=globalNS?d.filter(function(p){return p.ns===globalNS}):d;
+  var seenApp={},apps=[];
+  scoped.forEach(function(p){if(p.app&&!seenApp[p.app]){seenApp[p.app]=true;apps.push(p.app)}});
+  apps.sort();
+  if(filt.app&&apps.indexOf(filt.app)<0)filt.app="";
   m.innerHTML='<h2>Pods</h2><div class="filters">'
+   +'<select id="fapp" onchange="filt.app=this.value;drawPods()">'+appOpt("","todas aplica&ccedil;&otilde;es")+apps.map(function(a){return appOpt(a,a)}).join("")+'</select>'
    +'<select id="fenv" onchange="filt.env=this.value;drawPods()">'+envOpt("","todos ambientes")+envOpt("prod","prod")+envOpt("staging","staging")+envOpt("dev","dev")+envOpt("other","other")+'</select>'
    +'<select id="fst" onchange="filt.st=this.value;drawPods()">'+stOpt("","todos status")+stOpt("2","problema")+stOpt("1","aten&ccedil;&atilde;o")+stOpt("0","ok")+'</select>'
    +'<input type="text" id="fq" placeholder="filtrar por nome/namespace&#8230;" value="'+esc(filt.q)+'" oninput="filt.q=this.value;drawPods()">'
@@ -333,6 +341,7 @@ function rPods(m){var seq=renderSeq;
 function drawPods(){
  var d=podsCache.filter(function(p){
   if(globalNS&&p.ns!==globalNS)return false;
+  if(filt.app&&p.app!==filt.app)return false;
   if(filt.env&&p.env!==filt.env)return false;
   if(filt.st!==""&&(""+p.severity)!==filt.st)return false;
   if(filt.q){var q=filt.q.toLowerCase();if((p.name+" "+p.ns).toLowerCase().indexOf(q)<0)return false}
@@ -548,8 +557,10 @@ function openDetail(ns,name,reason){
  document.getElementById("ov").classList.add("show");
  var md=document.getElementById("modal");md.classList.add("show");
  document.getElementById("mh").innerHTML='<div><b>'+esc(name)+'</b>'
-  +'<div class="muted" style="font-size:12px">'+esc(ns)+" &middot; "+esc(reason)+'</div></div>'
+  +'<div class="muted" style="font-size:12px">'+esc(ns)+" &middot; "+esc(reason)+'</div>'
+  +'<div style="font-size:12px;margin-top:2px" id="mMet"></div></div>'
   +'<span class="x" onclick="closeDetail()">&times;</span>';
+ updateDetMetrics(ns,name);
  document.getElementById("mb").innerHTML='<div class="spin">carregando&#8230;</div>';
  api("/api/detail?ns="+encodeURIComponent(ns)+"&name="+encodeURIComponent(name)+"&reason="+encodeURIComponent(reason))
   .then(function(d){
@@ -566,6 +577,19 @@ function openDetail(ns,name,reason){
     d.events.forEach(function(e){
      h+='<div class="ev'+(e.type==="Warning"?" w":"")+'">&#9656; '+esc(e.reason)+": "+esc(e.message)
       +' <span style="opacity:.6">('+esc(e.age)+")</span></div>";
+    });
+   }
+   if(d.secrets&&d.secrets.length){
+    h+='<h3 class="muted" style="margin-top:14px">Secrets</h3>';
+    d.secrets.forEach(function(s){
+     h+='<div class="diag">&rarr; '+esc(s.secret)+"</div>";
+     if(s.denied){
+      h+='<div class="cmd mono muted">(sem permiss&atilde;o de leitura neste Secret)</div>';
+     }else if(!s.keys||!s.keys.length){
+      h+='<div class="cmd mono muted">(nenhuma chave encontrada)</div>';
+     }else{
+      s.keys.forEach(function(k){h+='<div class="cmd mono">'+esc(k)+"=xxx</div>"});
+     }
     });
    }
    h+='<div class="logbar"><h3 class="muted">Logs</h3>'
@@ -605,8 +629,15 @@ function stopLiveLog(){
 }
 function closeDetail(){
  stopLiveLog();
+ _detNS="";_detName="";
  document.getElementById("ov").classList.remove("show");
  document.getElementById("modal").classList.remove("show");
+}
+function updateDetMetrics(ns,name){
+ var el=document.getElementById("mMet");if(!el)return;
+ var met=pMet(ns,name);
+ el.innerHTML=met?("CPU "+fmtM(met.cpu)+' <span class="muted">&middot;</span> Mem '+fmtM(met.memory))
+  :'<span class="muted">sem m&eacute;tricas (kubectl top)</span>';
 }
 document.addEventListener("keydown",function(e){if(e.key==="Escape")closeDetail()});
 

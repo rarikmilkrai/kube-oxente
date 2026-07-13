@@ -213,10 +213,10 @@ func wlReady(kind string) workloadKind {
 	for _, raw := range getList(kind) {
 		var d struct {
 			Status struct {
-				ReadyReplicas        int `json:"readyReplicas"`
-				Replicas             int `json:"replicas"`
-				NumberReady          int `json:"numberReady"`
-				DesiredNumberSched   int `json:"desiredNumberScheduled"`
+				ReadyReplicas      int `json:"readyReplicas"`
+				Replicas           int `json:"replicas"`
+				NumberReady        int `json:"numberReady"`
+				DesiredNumberSched int `json:"desiredNumberScheduled"`
 			} `json:"status"`
 		}
 		if json.Unmarshal(raw, &d) != nil {
@@ -241,22 +241,22 @@ func wlReady(kind string) workloadKind {
 // ---------------- problemas (apps com falha) ----------------
 
 type probApp struct {
-	App         string   `json:"app"`
-	NS          string   `json:"ns"`
-	Env         string   `json:"env"`
-	Reason      string   `json:"reason"`
-	Severity    int      `json:"severity"`
-	PodCount    int      `json:"podCount"`
-	Restarts    int      `json:"restarts"`
-	Ready       int      `json:"ready"`
-	Total       int      `json:"total"`
-	Age         string   `json:"age"`
-	Node        string   `json:"node"`
-	LastExit    string   `json:"lastExit"`
-	SamplePod   string   `json:"samplePod"`
-	SampleReason string  `json:"sampleReason"`
-	Pods        []string `json:"pods"`
-	PrimaryDiag string   `json:"primaryDiag"`
+	App          string   `json:"app"`
+	NS           string   `json:"ns"`
+	Env          string   `json:"env"`
+	Reason       string   `json:"reason"`
+	Severity     int      `json:"severity"`
+	PodCount     int      `json:"podCount"`
+	Restarts     int      `json:"restarts"`
+	Ready        int      `json:"ready"`
+	Total        int      `json:"total"`
+	Age          string   `json:"age"`
+	Node         string   `json:"node"`
+	LastExit     string   `json:"lastExit"`
+	SamplePod    string   `json:"samplePod"`
+	SampleReason string   `json:"sampleReason"`
+	Pods         []string `json:"pods"`
+	PrimaryDiag  string   `json:"primaryDiag"`
 }
 
 func collectProblems() []probApp {
@@ -370,6 +370,7 @@ func collectNamespaces() []nsRow {
 type podRow struct {
 	NS       string `json:"ns"`
 	Name     string `json:"name"`
+	App      string `json:"app"`
 	Reason   string `json:"reason"`
 	Severity int    `json:"severity"`
 	Ready    int    `json:"ready"`
@@ -385,7 +386,7 @@ func collectPods() []podRow {
 	out := make([]podRow, 0, len(pods))
 	for _, pv := range pods {
 		out = append(out, podRow{
-			NS: pv.Metadata.Namespace, Name: pv.Metadata.Name, Reason: pv.reason,
+			NS: pv.Metadata.Namespace, Name: pv.Metadata.Name, App: appName(pv.pod), Reason: pv.reason,
 			Severity: pv.severity, Ready: pv.ready, Total: pv.total, Restarts: pv.restarts,
 			Age: age(pv.Metadata.CreationTimestamp), Node: shortNode(pv.Spec.NodeName),
 			Env: classifyEnv(pv.Metadata.Namespace),
@@ -508,12 +509,12 @@ func collectEvents() []evRow {
 	var out []evRow
 	for _, raw := range getList("events") {
 		var e struct {
-			Metadata struct{ Namespace string } `json:"metadata"`
-			Type     string                     `json:"type"`
-			Reason   string                     `json:"reason"`
-			Message  string                     `json:"message"`
-			Count    int                        `json:"count"`
-			LastTimestamp time.Time             `json:"lastTimestamp"`
+			Metadata       struct{ Namespace string }  `json:"metadata"`
+			Type           string                      `json:"type"`
+			Reason         string                      `json:"reason"`
+			Message        string                      `json:"message"`
+			Count          int                         `json:"count"`
+			LastTimestamp  time.Time                   `json:"lastTimestamp"`
 			InvolvedObject struct{ Kind, Name string } `json:"involvedObject"`
 		}
 		if json.Unmarshal(raw, &e) != nil || e.Type != "Warning" {
@@ -521,7 +522,7 @@ func collectEvents() []evRow {
 		}
 		out = append(out, evRow{
 			NS: e.Metadata.Namespace, Type: e.Type, Reason: e.Reason,
-			Object: e.InvolvedObject.Kind + "/" + e.InvolvedObject.Name,
+			Object:  e.InvolvedObject.Kind + "/" + e.InvolvedObject.Name,
 			Message: oneLine(e.Message), Count: e.Count, Age: age(e.LastTimestamp),
 		})
 	}
@@ -536,12 +537,12 @@ func collectEvents() []evRow {
 // ---------------- nodes (tabela) ----------------
 
 type ndRow struct {
-	Name    string `json:"name"`
-	Type    string `json:"type"`
-	Cap     string `json:"cap"`
-	Zone    string `json:"zone"`
-	Ready   bool   `json:"ready"`
-	Age     string `json:"age"`
+	Name  string `json:"name"`
+	Type  string `json:"type"`
+	Cap   string `json:"cap"`
+	Zone  string `json:"zone"`
+	Ready bool   `json:"ready"`
+	Age   string `json:"age"`
 }
 
 func collectNodes() []ndRow {
@@ -587,13 +588,15 @@ func collectNodes() []ndRow {
 // ---------------- detalhe de um pod ----------------
 
 type detail struct {
-	Events []evRow   `json:"events"`
-	Diags  []diag    `json:"diags"`
-	Logs   []logLine `json:"logs"`
+	Events  []evRow     `json:"events"`
+	Diags   []diag      `json:"diags"`
+	Logs    []logLine   `json:"logs"`
+	Secrets []secretRef `json:"secrets"`
 }
 
 func collectDetail(ns, name, reason string, logLines int) detail {
 	var d detail
+	d.Secrets = collectPodSecrets(ns, name)
 	out, _ := kubectl("get", "events", "-n", ns, "--field-selector", "involvedObject.name="+name, "-o", "json")
 	var lr listResp
 	json.Unmarshal(out, &lr)
@@ -628,6 +631,146 @@ func collectDetail(ns, name, reason string, logLines int) detail {
 	d.Diags = diagnose(reason, evText.String(), logs)
 	d.Logs = cleanLogLines(logs)
 	return d
+}
+
+// ---------------- secrets referenciados por um pod (só nomes de chaves) ----------------
+
+type secretRef struct {
+	Secret string   `json:"secret"`
+	Keys   []string `json:"keys"`
+	Denied bool     `json:"denied"`
+}
+
+type secretContainerSpec struct {
+	Env []struct {
+		ValueFrom *struct {
+			SecretKeyRef *struct {
+				Name string `json:"name"`
+				Key  string `json:"key"`
+			} `json:"secretKeyRef"`
+		} `json:"valueFrom"`
+	} `json:"env"`
+	EnvFrom []struct {
+		SecretRef *struct {
+			Name string `json:"name"`
+		} `json:"secretRef"`
+	} `json:"envFrom"`
+}
+
+type podSecretSpec struct {
+	Spec struct {
+		Volumes []struct {
+			Secret *struct {
+				SecretName string `json:"secretName"`
+				Items      []struct {
+					Key string `json:"key"`
+				} `json:"items"`
+			} `json:"secret"`
+		} `json:"volumes"`
+		Containers     []secretContainerSpec `json:"containers"`
+		InitContainers []secretContainerSpec `json:"initContainers"`
+	} `json:"spec"`
+}
+
+// collectPodSecrets lista, para um pod, os Secrets que ele referencia via env/envFrom/volume —
+// retorna apenas os nomes das chaves, nunca o valor.
+func collectPodSecrets(ns, name string) []secretRef {
+	out, err := kubectl("get", "pod", name, "-n", ns, "-o", "json")
+	if err != nil {
+		return nil
+	}
+	var ps podSecretSpec
+	if json.Unmarshal(out, &ps) != nil {
+		return nil
+	}
+
+	want := map[string]map[string]bool{}
+	all := map[string]bool{}
+	touch := func(secret string) {
+		if _, ok := want[secret]; !ok {
+			want[secret] = map[string]bool{}
+		}
+	}
+	handleContainer := func(c secretContainerSpec) {
+		for _, e := range c.Env {
+			if e.ValueFrom != nil && e.ValueFrom.SecretKeyRef != nil {
+				touch(e.ValueFrom.SecretKeyRef.Name)
+				want[e.ValueFrom.SecretKeyRef.Name][e.ValueFrom.SecretKeyRef.Key] = true
+			}
+		}
+		for _, ef := range c.EnvFrom {
+			if ef.SecretRef != nil {
+				touch(ef.SecretRef.Name)
+				all[ef.SecretRef.Name] = true
+			}
+		}
+	}
+	for _, c := range ps.Spec.Containers {
+		handleContainer(c)
+	}
+	for _, c := range ps.Spec.InitContainers {
+		handleContainer(c)
+	}
+	for _, v := range ps.Spec.Volumes {
+		if v.Secret == nil || v.Secret.SecretName == "" {
+			continue
+		}
+		touch(v.Secret.SecretName)
+		if len(v.Secret.Items) == 0 {
+			all[v.Secret.SecretName] = true
+		} else {
+			for _, it := range v.Secret.Items {
+				want[v.Secret.SecretName][it.Key] = true
+			}
+		}
+	}
+
+	names := make([]string, 0, len(want))
+	for n := range want {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+
+	out2 := make([]secretRef, 0, len(names))
+	for _, sname := range names {
+		sr := secretRef{Secret: sname}
+		raw, err := kubectl("get", "secret", sname, "-n", ns, "-o", "json")
+		if err != nil {
+			sr.Denied = true
+			out2 = append(out2, sr)
+			continue
+		}
+		var sec struct {
+			Data       map[string]string `json:"data"`
+			StringData map[string]string `json:"stringData"`
+		}
+		if json.Unmarshal(raw, &sec) != nil {
+			sr.Denied = true
+			out2 = append(out2, sr)
+			continue
+		}
+		keySet := map[string]bool{}
+		for k := range sec.Data {
+			keySet[k] = true
+		}
+		for k := range sec.StringData {
+			keySet[k] = true
+		}
+		var keys []string
+		if all[sname] {
+			for k := range keySet {
+				keys = append(keys, k)
+			}
+		} else {
+			for k := range want[sname] {
+				keys = append(keys, k)
+			}
+		}
+		sort.Strings(keys)
+		sr.Keys = keys
+		out2 = append(out2, sr)
+	}
+	return out2
 }
 
 func getLogs(ns, name string, lines int, previous bool) string {
