@@ -76,6 +76,18 @@ func classifyEnv(s string) string {
 	}
 }
 
+var reEKSArn = regexp.MustCompile(`^arn:aws:eks:[^:]+:[0-9]+:cluster/(.+)$`)
+
+// clusterShortName extrai o nome do cluster de um contexto kubeconfig. Em EKS o contexto
+// costuma ser o ARN completo (arn:aws:eks:REGION:ACCOUNT:cluster/NOME) — isso é ilegível
+// no header; aqui pegamos só o NOME. Fora do padrão EKS, devolve o contexto como veio.
+func clusterShortName(ctx string) string {
+	if m := reEKSArn.FindStringSubmatch(ctx); len(m) == 2 {
+		return m[1]
+	}
+	return ctx
+}
+
 // ---------------- structs do kubectl -o json ----------------
 
 type listResp struct {

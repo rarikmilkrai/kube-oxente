@@ -85,12 +85,13 @@ type kv struct {
 }
 
 type overview struct {
-	Ctx        string   `json:"ctx"`
-	Env        string   `json:"env"`
-	Nodes      []string `json:"nodes"`
-	NodesTotal int      `json:"nodesTotal"`
-	NodesDown  int      `json:"nodesDown"`
-	Pods       struct {
+	Ctx         string   `json:"ctx"`
+	Env         string   `json:"env"`
+	ClusterName string   `json:"clusterName"`
+	Nodes       []string `json:"nodes"`
+	NodesTotal  int      `json:"nodesTotal"`
+	NodesDown   int      `json:"nodesDown"`
+	Pods        struct {
 		Total, Running, Pending, Failed, Succeeded int
 		OK, Warn, Prob                             int
 	} `json:"pods"`
@@ -159,11 +160,12 @@ func nodeLines() (lines []string, total, down int) {
 	return
 }
 
-func collectOverview() overview {
+func collectOverview(ns string) overview {
 	var o overview
 	o.Generated = time.Now().Format("15:04:05")
 	o.Ctx = effectiveContext()
 	o.Env = classifyEnv(o.Ctx)
+	o.ClusterName = clusterShortName(o.Ctx)
 	o.Nodes, o.NodesTotal, o.NodesDown = nodeLines()
 
 	pods := allPods()
@@ -171,6 +173,9 @@ func collectOverview() overview {
 	appsBad := map[string]bool{}
 	envc := map[string]int{"prod": 0, "staging": 0, "dev": 0, "other": 0}
 	for _, pv := range pods {
+		if ns != "" && pv.Metadata.Namespace != ns {
+			continue
+		}
 		nsSet[pv.Metadata.Namespace] = true
 		o.Pods.Total++
 		switch pv.Status.Phase {
@@ -204,15 +209,18 @@ func collectOverview() overview {
 		}
 	}
 	o.Workloads = []workloadKind{
-		wlReady("deployments"), wlReady("statefulsets"), wlReady("daemonsets"),
+		wlReady("deployments", ns), wlReady("statefulsets", ns), wlReady("daemonsets", ns),
 	}
 	return o
 }
 
-func wlReady(kind string) workloadKind {
+func wlReady(kind, ns string) workloadKind {
 	w := workloadKind{Kind: strings.TrimSuffix(kind, "s")}
 	for _, raw := range getList(kind) {
 		var d struct {
+			Metadata struct {
+				Namespace string `json:"namespace"`
+			} `json:"metadata"`
 			Status struct {
 				ReadyReplicas      int `json:"readyReplicas"`
 				Replicas           int `json:"replicas"`
@@ -221,6 +229,9 @@ func wlReady(kind string) workloadKind {
 			} `json:"status"`
 		}
 		if json.Unmarshal(raw, &d) != nil {
+			continue
+		}
+		if ns != "" && d.Metadata.Namespace != ns {
 			continue
 		}
 		w.Total++
@@ -1420,8 +1431,21 @@ type dnsInfo struct {
 var reCoreDNSForward = regexp.MustCompile(`(?m)^\s*forward\s+(\S+)\s+(.+?)\s*(?:\{|$)`)
 
 func collectDNS() dnsInfo {
-	out, err := kubectl("get", "deploy", "coredns", "-n", "kube-system", "-o", "json")
-	if err != nil {
+	var wg sync.WaitGroup
+	var deployOut, cmOut []byte
+	var deployErr error
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		deployOut, deployErr = kubectl("get", "deploy", "coredns", "-n", "kube-system", "-o", "json")
+	}()
+	go func() {
+		defer wg.Done()
+		cmOut, _ = kubectl("get", "configmap", "coredns", "-n", "kube-system", "-o", "jsonpath={.data.Corefile}")
+	}()
+	wg.Wait()
+
+	if deployErr != nil {
 		return dnsInfo{}
 	}
 	var d struct {
@@ -1430,14 +1454,12 @@ func collectDNS() dnsInfo {
 			ReadyReplicas int `json:"readyReplicas"`
 		} `json:"status"`
 	}
-	if json.Unmarshal(out, &d) != nil {
+	if json.Unmarshal(deployOut, &d) != nil {
 		return dnsInfo{}
 	}
 	info := dnsInfo{Found: true, Desired: d.Status.Replicas, Ready: d.Status.ReadyReplicas}
-	if cm, err := kubectl("get", "configmap", "coredns", "-n", "kube-system", "-o", "jsonpath={.data.Corefile}"); err == nil {
-		if m := reCoreDNSForward.FindStringSubmatch(string(cm)); len(m) == 3 {
-			info.Forwarders = strings.TrimSpace(m[1] + " -> " + m[2])
-		}
+	if m := reCoreDNSForward.FindStringSubmatch(string(cmOut)); len(m) == 3 {
+		info.Forwarders = strings.TrimSpace(m[1] + " -> " + m[2])
 	}
 	return info
 }
@@ -1527,11 +1549,27 @@ type networkExtra struct {
 }
 
 func collectNetworkExtra() networkExtra {
-	rows, total := collectNetworkPolicyCoverage()
+	var (
+		wg      sync.WaitGroup
+		npRows  []netpolNSRow
+		npTotal int
+		cni     cniInfo
+		dns     dnsInfo
+		tgb     []tgbRow
+		sgp     []sgpRow
+	)
+	wg.Add(5)
+	go func() { defer wg.Done(); npRows, npTotal = collectNetworkPolicyCoverage() }()
+	go func() { defer wg.Done(); cni = collectCNI() }()
+	go func() { defer wg.Done(); dns = collectDNS() }()
+	go func() { defer wg.Done(); tgb = collectTargetGroupBindings() }()
+	go func() { defer wg.Done(); sgp = collectSecurityGroupPolicies() }()
+	wg.Wait()
+
 	return networkExtra{
-		NetPolicy: rows, NetPolicyTotal: total,
-		CNI: collectCNI(), DNS: collectDNS(),
-		TargetGroupBinds: collectTargetGroupBindings(),
-		SecurityGroupPol: collectSecurityGroupPolicies(),
+		NetPolicy: npRows, NetPolicyTotal: npTotal,
+		CNI: cni, DNS: dns,
+		TargetGroupBinds: tgb,
+		SecurityGroupPol: sgp,
 	}
 }

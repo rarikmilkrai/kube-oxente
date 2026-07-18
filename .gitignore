@@ -1,0 +1,9 @@
+/koxente
+/kdash
+koxente-linux-*
+koxente-darwin-*
+koxente-windows-*
+kdash-linux-*
+kdash-darwin-*
+kdash-windows-*
+*.exe

@@ -44,7 +44,7 @@ func main() {
 		writeJSON(w, map[string]any{"ok": true, "active": effectiveContext()})
 	})
 
-	mux.HandleFunc("/api/overview",    func(w http.ResponseWriter, r *http.Request) { writeJSON(w, collectOverview()) })
+	mux.HandleFunc("/api/overview",    func(w http.ResponseWriter, r *http.Request) { writeJSON(w, collectOverview(r.URL.Query().Get("ns"))) })
 	mux.HandleFunc("/api/problems",    func(w http.ResponseWriter, r *http.Request) { writeJSON(w, collectProblems()) })
 	mux.HandleFunc("/api/namespaces",  func(w http.ResponseWriter, r *http.Request) { writeJSON(w, collectNamespaces()) })
 	mux.HandleFunc("/api/pods",        func(w http.ResponseWriter, r *http.Request) { writeJSON(w, collectPods()) })

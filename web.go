@@ -263,11 +263,13 @@ function exportReport(){
 /* ===================== RENDER FUNCTIONS ===================== */
 
 function rOverview(m){var seq=renderSeq;
- api("/api/overview").then(function(d){
+ api("/api/overview"+(globalNS?"?ns="+encodeURIComponent(globalNS):"")).then(function(d){
   if(renderSeq!==seq)return;setGen();
-  var eb=document.getElementById("envb");if(eb){eb.className="badge "+(d.env||"other");eb.textContent=d.env||"other"}
+  var eb=document.getElementById("envb");
+  if(eb){eb.className="badge "+(d.env||"other");eb.title=d.ctx||"";eb.textContent=d.clusterName||d.env||"other"}
   var p=d.pods||{};
-  var html='<h2>Overview <span class="muted" style="font-size:13px">'+esc(d.ctx)+"</span></h2>";
+  var html='<h2>Overview <span class="muted" style="font-size:13px">'+esc(d.clusterName||d.ctx)
+   +(globalNS?" &middot; "+esc(globalNS):"")+"</span></h2>";
   if(d.err){m.innerHTML=html+'<div class="spin">erro: '+esc(d.err)+"</div>";return}
   html+='<div class="cards">'+
    card(p.Total,"pods")+card(p.Running,"running","grn")+
