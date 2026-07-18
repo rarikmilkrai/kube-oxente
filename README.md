@@ -29,6 +29,8 @@ docker run -p 8200:8200 \
 
 Acesse **http://localhost:8200** no navegador.
 
+> ⚠️ **Cluster local (minikube, kind, k3d)?** O Docker acima só funciona bem com cluster **remoto** (EKS, GKE, AKS, etc). Se o seu cluster roda na sua própria máquina, veja a seção [Usando com cluster local](#usando-com-cluster-local-minikube-kind-k3d) antes de continuar — tem um detalhe de rede que trava bastante gente iniciante.
+
 **Variáveis de ambiente úteis:**
 
 ```bash
@@ -83,7 +85,7 @@ mv koxente-linux-amd64 /usr/local/bin/koxente
 .\koxente-windows-amd64.exe
 ```
 
-### Opção 3 — Compilar com Go 1.22+
+### Opção 3 — Compilar com Go 1.24+
 
 ```bash
 git clone <url-do-repo> koxente
@@ -117,13 +119,57 @@ Como usa apenas a stdlib do Go, não há `go mod tidy` nem download de pacotes.
 
 ---
 
+## Usando com cluster local (minikube, kind, k3d)
+
+Se você tá começando, é bem comum testar tudo primeiro num cluster que roda na sua própria máquina (minikube, kind, k3d) antes de mexer num cluster de verdade. Só que rodar o koxente **via Docker** contra um cluster desses tem uma pegadinha — e ela não tem nada a ver com o koxente quebrado, é só como containers e rede funcionam.
+
+**O que acontece:** o kubeconfig do minikube normalmente aponta o servidor da API pra `https://127.0.0.1:PORTA` — um endereço que só faz sentido *na sua máquina*. Só que um container Docker tem sua própria "rede isolada": o `127.0.0.1` de dentro do container `rarikmilkrai/koxente` aponta pro próprio container, **não** pro seu computador. Resultado: o koxente sobe, abre a tela, mas não consegue falar com o cluster — parece erro de conexão, mas na real é só esse desencontro de endereço.
+
+**Como saber se é isso:** se o painel abre mas fica travado em "carregando" ou mostra erro tipo `connection refused` logo de cara, e seu cluster é minikube/kind/k3d, é praticamente certeza que é esse o motivo.
+
+### Qual caminho escolher
+
+| Seu cenário | O que usar |
+|---|---|
+| Cluster remoto (EKS, GKE, AKS, on-prem com IP de verdade) | Docker normal, [Opção 1](#opção-1--docker-sem-instalar-nada) lá em cima — funciona direto |
+| Cluster local (minikube, kind, k3d) | **Binário nativo** (mais simples, sem pegadinha) — veja abaixo |
+
+### Opção A — rodar sem Docker (recomendado pra cluster local)
+
+Como o koxente é só um binário Go, sem containers e sem dependências, ele enxerga o `127.0.0.1` do seu kubeconfig igualzinho um `kubectl` normal — porque tecnicamente é a mesma coisa: um programa rodando direto na sua máquina.
+
+```bash
+git clone https://github.com/rarikmilkrai/koxente.git
+cd koxente
+go build -o koxente .
+./koxente
+```
+
+Só precisa ter o [Go](https://go.dev/dl/) instalado (versão 1.24 ou mais nova — confira com `go version`). Depois é só abrir `http://127.0.0.1:8200` no navegador. Nenhuma outra configuração é necessária: se o `kubectl get pods` já funciona no seu terminal, o koxente também vai funcionar.
+
+### Opção B — insistir no Docker, emprestando a rede do host
+
+Se por algum motivo você quer usar Docker mesmo assim, no **Linux** (inclusive WSL2) dá pra fazer o container "pegar emprestada" a rede da sua máquina em vez de ter a dele própria, com a flag `--network host`:
+
+```bash
+docker run --network host \
+  -v ~/.kube:/root/.kube:ro \
+  rarikmilkrai/koxente:latest --port 8200
+```
+
+Assim o `127.0.0.1` de dentro do container passa a ser o mesmo `127.0.0.1` da sua máquina, e o kubeconfig do minikube funciona normalmente.
+
+> ⚠️ **macOS (Docker Desktop):** essa opção não é confiável por lá — o suporte a `--network host` ainda é experimental no Docker Desktop pra Mac. Se você está num Mac, vá direto de Opção A.
+
+---
+
 ## Requisitos
 
 | Requisito | Detalhe |
 |---|---|
 | `kubectl` | Instalado e configurado (o koxente usa seu kubeconfig) |
 | Acesso ao cluster | Permissão de leitura (`get`, `list`, `watch`) nos recursos |
-| Go 1.22+ | **Somente** se for compilar — não necessário para usar o binário |
+| Go 1.24+ | **Somente** se for compilar — não necessário para usar o binário |
 
 ---
 
@@ -196,13 +242,13 @@ O contexto também pode ser trocado direto no seletor no topo do painel — list
 |---|---|
 | **Overview** | Cards: pods totais, running, pending, com falha, namespaces, nós, apps com problema. Barra de saúde, split por ambiente, workloads prontos, tipos de nó (spot/on-demand) |
 | **Problemas** | Apps com falha agrupadas por (namespace + app + motivo), com diagnóstico provável e comandos sugeridos. Clicar abre painel lateral com eventos, logs limpos e diagnóstico detalhado |
-| **Pods** | Tabela completa com filtro por ambiente, status e busca por nome/namespace |
+| **Pods** | Tabela completa com filtro por ambiente, status, aplicação (dentro do namespace selecionado) e busca por nome/namespace. Clicar num pod abre painel com métricas de CPU/Mem em tempo real, eventos, logs (com "ao vivo") e as chaves de Secret que aquele pod referencia (nunca o valor) |
 | **Workloads** | Deployments, StatefulSets e DaemonSets com contagem ready/desired |
-| **Services** | ClusterIP, tipo (ClusterIP/NodePort/LoadBalancer) e portas |
+| **Services** | ClusterIP, tipo (ClusterIP/NodePort/LoadBalancer), portas e contagem de endpoints prontos/não-prontos |
 | **Namespaces** | Contagem de pods por namespace com breakdown de saúde |
 | **Eventos** | Warning events do cluster inteiro, ordenados por frequência |
 | **Nós** | Nome, tipo de instância, capacidade (spot/on-demand), zona e status ready |
-| **Ingresses** | Hosts, endereço do load balancer, classe (nginx/alb/traefik), portas e TLS |
+| **Rede** | Services órfãos (sem endpoint pronto) ou com mismatch de porta, cobertura de NetworkPolicy por namespace, saúde do VPC CNI (aws-node) e config de SNAT/IP, réplicas e forwarders do CoreDNS, TargetGroupBinding/SecurityGroupPolicy (quando instalados) e Ingress — hosts, load balancer, classe, portas e TLS |
 | **CronJobs** | Schedule, status de execução ativa, última execução, último sucesso — com detecção de falha (sem sucesso, último run falhou, suspenso) |
 | **HPA** | Autoscalers com min/max/atual/desejado, destaque quando fora do range |
 | **PVCs** | Status (Bound/Pending/Lost), capacidade, access modes e StorageClass |
@@ -273,9 +319,11 @@ make docker-push
 
 ```
 main.go      servidor HTTP e handlers da API REST
-collect.go   coletores de cada seção (pods, workloads, CronJobs, HPAs, PVCs, ...)
+collect.go   coletores de cada seção (pods, workloads, CronJobs, HPAs, PVCs, rede, ...)
 triage.go    execução do kubectl, cálculo de status dos pods e engine de diagnóstico
+stream.go    streaming de logs em tempo real (SSE)
 web.go       interface completa (HTML/CSS/JS embutidos no binário)
+*_test.go    testes unitários (rodar com `go test ./...`)
 ```
 
 ---
@@ -290,6 +338,10 @@ web.go       interface completa (HTML/CSS/JS embutidos no binário)
 - [x] Resource Quotas por namespace
 - [x] Imagem Docker oficial (`rarikmilkrai/koxente`)
 - [x] Histórico de restarts com mini-gráfico de linha
+- [x] Filtro por aplicação dentro do namespace, na aba Pods
+- [x] Métricas de CPU/Mem em tempo real no painel de detalhe do pod
+- [x] Visualização das chaves de Secret referenciadas por um pod (sem expor valores)
+- [x] Aba Rede: endpoints órfãos/mismatch de porta, cobertura de NetworkPolicy, saúde do VPC CNI, CoreDNS, TargetGroupBinding/SecurityGroupPolicy
 - [ ] Aba de comparação entre contextos (multi-cluster side-by-side)
 - [ ] Alertas configuráveis (threshold de restarts, pods pending há N min)
 
