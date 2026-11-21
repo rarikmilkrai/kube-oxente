@@ -3,6 +3,8 @@ package main
 const indexHTML = `<!doctype html><html lang="pt-br"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Kube Oxente</title>
+<link rel="stylesheet" href="/static/arch.css">
+<script src="/static/arch.js"></script>
 <style>
 :root{
  --bg:#0e1016;--panel:#161922;--panel2:#1d212c;--bd:#262b38;--fg:#e7e9ef;--mut:#8a93a6;
@@ -128,6 +130,7 @@ var VIEWS=[
  {id:"events",    ico:"&#9993;", label:"Eventos"},
  {id:"nodes",     ico:"&#9636;", label:"N&oacute;s"},
  {id:"network",   ico:"&#8599;", label:"Rede"},
+ {id:"arch",      ico:"&#9672;", label:"Arquitetura"},
  {id:"cronjobs",  ico:"&#9711;", label:"CronJobs"},
  {id:"hpas",      ico:"&#8645;", label:"HPA"},
  {id:"pvcs",      ico:"&#9644;", label:"PVCs"},
@@ -152,7 +155,7 @@ function renderNav(){
   return'<a class="'+(v.id===view?"on":"")+'" onclick="nav(\''+v.id+'\')"><span class="ico">'+v.ico+"</span>"+v.label+badge+"</a>";
  }).join("");
 }
-function nav(v){view=v;renderNav();schedule();render()}
+function nav(v){view=v;if(location.hash.slice(1).split(":")[0]!==v)history.replaceState(null,"","#"+v);renderNav();schedule();render()}
 
 /* ---- contexts ---- */
 function loadContexts(){
@@ -228,7 +231,7 @@ function render(){
  var fns={overview:rOverview,problems:rProblems,pods:rPods,workloads:rWorkloads,
   services:rServices,namespaces:rNamespaces,events:rEvents,nodes:rNodes,
   network:rNetwork,cronjobs:rCronJobs,hpas:rHPAs,pvcs:rPVCs,
-  configmaps:rConfigMaps,quotas:rQuotas};
+  configmaps:rConfigMaps,quotas:rQuotas,arch:function(m){if(window.rArch)window.rArch(m)}};
  (fns[view]||rOverview)(m);
 }
 function setGen(){document.getElementById("gen").textContent="atualizado "+new Date().toLocaleTimeString()}
@@ -726,5 +729,8 @@ function updateDetMetrics(ns,name){
 document.addEventListener("keydown",function(e){if(e.key==="Escape")closeDetail()});
 
 /* ===================== INIT ===================== */
+function hashView(){var hv=location.hash.slice(1).split(":")[0];return VIEWS.some(function(v){return v.id===hv})?hv:""}
+(function(){var hv=hashView();if(hv)view=hv})();
+window.addEventListener("hashchange",function(){var hv=hashView();if(hv&&hv!==view)nav(hv)});
 loadContexts();loadNsFilter();loadMetrics();render();schedule();
 </script></body></html>`

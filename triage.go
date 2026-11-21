@@ -3,6 +3,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os/exec"
@@ -14,6 +15,8 @@ import (
 )
 
 // ---------------- contexto ativo ----------------
+
+var kubectlTimeout = 30 * time.Second
 
 var (
 	ctxMu     sync.RWMutex
@@ -33,10 +36,15 @@ func kubectl(args ...string) ([]byte, error) {
 	if c := getActiveContext(); c != "" {
 		args = append([]string{"--context", c}, args...)
 	}
-	cmd := exec.Command("kubectl", args...)
+	ctx, cancel := context.WithTimeout(context.Background(), kubectlTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "kubectl", args...)
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	if err := cmd.Run(); err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return out.Bytes(), fmt.Errorf("kubectl não respondeu em %s (VPN/credenciais?)", kubectlTimeout)
+		}
 		return out.Bytes(), fmt.Errorf("%s", strings.TrimSpace(errb.String()))
 	}
 	return out.Bytes(), nil

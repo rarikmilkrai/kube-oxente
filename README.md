@@ -139,7 +139,7 @@ Se você tá começando, é bem comum testar tudo primeiro num cluster que roda 
 Como o koxente é só um binário Go, sem containers e sem dependências, ele enxerga o `127.0.0.1` do seu kubeconfig igualzinho um `kubectl` normal — porque tecnicamente é a mesma coisa: um programa rodando direto na sua máquina.
 
 ```bash
-git clone https://github.com/rarikmilkrai/koxente.git
+git clone https://github.com/rarikmilkrai/kube-oxente.git koxente
 cd koxente
 go build -o koxente .
 ./koxente
@@ -231,6 +231,8 @@ Abra o endereço no navegador. O servidor escuta apenas em `127.0.0.1` — ningu
 | `--host` | `127.0.0.1` | Endereço de escuta (`0.0.0.0` para Docker/rede) |
 | `--context` | (atual) | Contexto kubeconfig inicial |
 | `--logs` | `40` | Linhas de log no detalhe de cada pod |
+| `--timeout` | `30s` | Tempo máximo de cada chamada ao `kubectl` (evita o painel travar sem VPN/credencial) |
+| `--arch-secrets` | `false` | Na aba Arquitetura, lê os valores dos Secrets **só no servidor** para descobrir hosts de banco/cache/fila. Nenhum valor sai na API nem no Terraform |
 
 O contexto também pode ser trocado direto no seletor no topo do painel — lista todos os contextos do kubeconfig e troca na hora, sem reiniciar.
 
@@ -249,6 +251,7 @@ O contexto também pode ser trocado direto no seletor no topo do painel — list
 | **Eventos** | Warning events do cluster inteiro, ordenados por frequência |
 | **Nós** | Nome, tipo de instância, capacidade (spot/on-demand), zona e status ready |
 | **Rede** | Services órfãos (sem endpoint pronto) ou com mismatch de porta, cobertura de NetworkPolicy por namespace, saúde do VPC CNI (aws-node) e config de SNAT/IP, réplicas e forwarders do CoreDNS, TargetGroupBinding/SecurityGroupPolicy (quando instalados) e Ingress — hosts, load balancer, classe, portas e TLS |
+| **Arquitetura** | Desenho de quem fala com quem: Internet → LB → Ingress → Service → Workload, mais ConfigMaps/Secrets, PVCs, HPA, NetworkPolicy e dependências externas (RDS, ElastiCache, SQS, MongoDB Atlas…) descobertas nas variáveis de ambiente e ConfigMaps. Canvas interativo: arrastar, zoom, adicionar nós e conexões manuais, ocultar, anotar e exportar PNG/SVG (layout salvo no navegador por contexto). Modo **Terraform**: gera o HCL (`hashicorp/kubernetes`) com blocos `import {}` e mostra o diagrama a partir do próprio HCL — edite o código e o desenho acompanha |
 | **CronJobs** | Schedule, status de execução ativa, última execução, último sucesso — com detecção de falha (sem sucesso, último run falhou, suspenso) |
 | **HPA** | Autoscalers com min/max/atual/desejado, destaque quando fora do range |
 | **PVCs** | Status (Bound/Pending/Lost), capacidade, access modes e StorageClass |
@@ -309,8 +312,8 @@ make docker-push
 
 ## Segurança
 
-- **Somente leitura.** O koxente executa apenas `kubectl get` e `kubectl logs`. Não cria, edita nem apaga nada.
-- O servidor web fica restrito a `127.0.0.1` — não exposto na rede.
+- **Somente leitura.** O koxente executa apenas `kubectl get` e `kubectl logs`. Não cria, edita nem apaga nada. O Terraform gerado é só texto — quem aplica é você.
+- O servidor web fica restrito a `127.0.0.1` — não exposto na rede — e recusa requisições com `Host` diferente de localhost (proteção contra DNS rebinding).
 - As permissões são exatamente as do seu kubeconfig — o koxente não amplia acesso.
 
 ---
@@ -323,6 +326,10 @@ collect.go   coletores de cada seção (pods, workloads, CronJobs, HPAs, PVCs, r
 triage.go    execução do kubectl, cálculo de status dos pods e engine de diagnóstico
 stream.go    streaming de logs em tempo real (SSE)
 web.go       interface completa (HTML/CSS/JS embutidos no binário)
+arch.go      aba Arquitetura: leitura do cluster e inferência de conexões
+arch_tf.go   geração do Terraform a partir do cluster
+static.go    arquivos de ui/ embutidos (go:embed) e proteção de Host
+ui/          canvas da aba Arquitetura (arch.js / arch.css)
 *_test.go    testes unitários (rodar com `go test ./...`)
 ```
 
