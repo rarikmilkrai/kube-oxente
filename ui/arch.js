@@ -2,14 +2,14 @@
   "use strict";
 
   const NS = "http://www.w3.org/2000/svg";
-  const W = 210, H = 52;
+  const W = 210, H = 60;
 
   const COLORS = {
     internet: "#5aa9ff", lb: "#818cf8", cidr: "#8a93a6", ingress: "#a78bfa", service: "#38bdf8",
     workload: "#5fd38a", configmap: "#94a3b8", secret: "#f0a35e", pvc: "#c084fc", hpa: "#ffc04d",
     db: "#ff8f6b", cache: "#ff6b9d", queue: "#f7c948", storage: "#4fd1c5", search: "#63b3ed",
     aws: "#ff9900", external: "#9aa4b8", note: "#ffd166", user: "#e879f9", tf: "#8b5cf6",
-    network: "#22d3ee", group: "#64748b", compute: "#34d399", security: "#f87171"
+    network: "#22d3ee", group: "#64748b", compute: "#34d399", security: "#f87171", namespace: "#5aa9ff"
   };
 
   const KIND_LABEL = {
@@ -17,18 +17,18 @@
     workload: "Workload", configmap: "ConfigMap", secret: "Secret", pvc: "Volume (PVC)", hpa: "HPA",
     db: "Banco de dados", cache: "Cache", queue: "Fila / mensageria", storage: "Storage", search: "Busca",
     aws: "Serviço AWS", external: "Externo", note: "Nota", user: "Usuários", tf: "Recurso",
-    network: "Rede", group: "Agrupador", compute: "Computação", security: "Segurança"
+    network: "Rede", group: "Agrupador", compute: "Computação", security: "Segurança", namespace: "Namespace recolhido"
   };
 
   const ABBR = {
     internet: "WWW", lb: "LB", cidr: "IP", ingress: "ING", service: "SVC", configmap: "CM", secret: "SEC",
     pvc: "PVC", hpa: "HPA", db: "DB", cache: "RDS", queue: "MQ", storage: "S3", search: "OS", aws: "AWS",
-    external: "EXT", note: "TXT", user: "USR", tf: "TF", network: "NET", group: "GRP", compute: "VM", security: "SG"
+    external: "EXT", note: "TXT", user: "USR", tf: "TF", network: "NET", group: "GRP", compute: "VM", security: "SG", namespace: "NS"
   };
   const WL_ABBR = { Deployment: "DEP", StatefulSet: "STS", DaemonSet: "DS", CronJob: "CJ" };
 
   const COLUMN = {
-    user: 0, internet: 0, cidr: 0, lb: 1, ingress: 2, service: 3, workload: 4, compute: 4,
+    namespace: 4, user: 0, internet: 0, cidr: 0, lb: 1, ingress: 2, service: 3, workload: 4, compute: 4,
     hpa: 5, configmap: 5, secret: 5, pvc: 5, note: 5, security: 2, network: 1, group: 1, tf: 4,
     db: 6, cache: 6, queue: 6, storage: 6, search: 6, aws: 6, external: 6
   };
@@ -279,20 +279,33 @@
         const t2 = el("text", { x: 12, y: 37, "font-size": 10.5, fill: "#d6c58a" }, g);
         t2.textContent = trunc(n.sub, 36);
       } else {
+        const sc = n.sev === 2 ? "#ff6b6b" : c;
         el("rect", {
-          width: W, height: H, rx: 11, fill: "#151924", stroke: c, "stroke-opacity": n.sev ? 1 : .5,
-          "stroke-width": n.sev ? 1.6 : 1.1, "stroke-dasharray": n.custom ? "5 3" : (n.sev === 2 ? "4 2" : null),
-          filter: "url(#ar-sh-" + opts.key + ")"
+          width: W, height: H, rx: 11, fill: "#151924", stroke: sc, "stroke-opacity": n.sev ? 1 : .5,
+          "stroke-width": n.sev ? 1.6 : 1.1, "stroke-dasharray": n.custom ? "5 3" : (n.kind === "namespace" ? "6 3" : null),
+          filter: "url(#ar-sh-" + opts.key + ")", class: n.sev === 2 ? "ar-pulse" : null
         }, g);
         if (n.sev === 2) el("rect", { width: W, height: H, rx: 11, fill: "#ff6b6b", "fill-opacity": .08 }, g);
-        el("rect", { x: 9, y: 10, width: 34, height: 32, rx: 8, fill: c, "fill-opacity": .16, stroke: c, "stroke-opacity": .35 }, g);
+        el("rect", { x: 9, y: 13, width: 34, height: 34, rx: 8, fill: c, "fill-opacity": .16, stroke: c, "stroke-opacity": .35 }, g);
         const ab = n.abbr || (n.kind === "workload" && n.meta && WL_ABBR[n.meta.kind]) || ABBR[n.kind] || "•";
-        const at = el("text", { x: 26, y: 30, "text-anchor": "middle", "font-size": ab.length > 3 ? 8.5 : 10, "font-weight": 700, fill: c, "letter-spacing": .3 }, g);
+        const at = el("text", { x: 26, y: 34, "text-anchor": "middle", "font-size": ab.length > 3 ? 8.5 : 10, "font-weight": 700, fill: c, "letter-spacing": .3 }, g);
         at.textContent = ab;
-        const nt = el("text", { x: 52, y: 23, "font-size": 12.5, "font-weight": 600, fill: "#e7e9ef" }, g);
+        const m = n.meta || {};
+        const hasM = m.pods != null;
+        const nt = el("text", { x: 52, y: hasM ? 20 : 25, "font-size": 12.5, "font-weight": 600, fill: "#e7e9ef" }, g);
         nt.textContent = trunc(n.name, 22);
-        const sb = el("text", { x: 52, y: 39, "font-size": 10.5, fill: "#8a93a6" }, g);
+        const sb = el("text", { x: 52, y: hasM ? 35 : 42, "font-size": 10.5, fill: "#8a93a6" }, g);
         sb.textContent = trunc(n.sub || KIND_LABEL[n.kind] || "", 29);
+        if (hasM) {
+          const mt = el("text", { x: 52, y: 50, "font-size": 10, fill: "#6b7488", "font-family": "ui-monospace,Menlo,Consolas,monospace" }, g);
+          const span = (txt, color) => { const t = el("tspan", { fill: color || null }, mt); t.textContent = txt; };
+          const ready = +m.podsReady, total = +m.pods;
+          span(ready + "/" + total, total && ready < total ? (ready ? "#ffc04d" : "#ff6b6b") : "#5fd38a");
+          if (m.cpu) span("  " + m.cpu);
+          if (m.mem) span("  " + m.mem);
+          if (+m.restarts) span("  ↻" + m.restarts, "#ffc04d");
+          if (m.reason && n.sev) span("  " + trunc(m.reason, 14), n.sev === 2 ? "#ff6b6b" : "#ffc04d");
+        }
       }
       if (n.sev) {
         const sc = n.sev === 2 ? "#ff6b6b" : "#ffc04d";
@@ -339,6 +352,14 @@
         const tag = opts.groupTag ? opts.groupTag(gid) : "namespace";
         const t2 = el("text", { x: b.x + 12 + tw + 8, y: b.y + 23, "font-size": 10, fill: "#5b6478" }, lg);
         t2.textContent = tag;
+        if (opts.onGroupCollapse) {
+          const cb = el("g", { "data-gcollapse": gid, style: "cursor:pointer" }, g);
+          el("rect", { x: b.x + b.w - 34, y: b.y + 9, width: 22, height: 20, rx: 6, fill: c, "fill-opacity": .14 }, cb);
+          const ct = el("text", { x: b.x + b.w - 23, y: b.y + 24, "text-anchor": "middle", "font-size": 14, "font-weight": 700, fill: c }, cb);
+          ct.textContent = "−";
+          const tt = el("title", null, cb);
+          tt.textContent = "recolher namespace";
+        }
         st.groupEl[gid] = g;
       });
     }
@@ -368,16 +389,20 @@
         if (e) nb = { nodes: new Set([e.from, e.to]), edges: new Set([e.id]) };
       }
       if (st.match && st.match.size) nb = { nodes: st.match, edges: new Set() };
+      if (st.impact) nb = st.impact;
       Object.keys(st.nodeEl).forEach(id => {
         const g = st.nodeEl[id];
         g.classList.toggle("ar-dim", !!nb && !nb.nodes.has(id));
         const isSel = st.sel && st.sel.type === "node" && st.sel.id === id;
         g.classList.toggle("sel", !!isSel);
         g.firstChild.setAttribute("filter", isSel || (st.connectFrom === id) ? "url(#ar-glow-" + opts.key + ")" : "url(#ar-sh-" + opts.key + ")");
+        g.classList.toggle("ar-imp", !!st.impact && st.impact.nodes.has(id) && st.impact.root !== id);
+        g.classList.toggle("ar-imp-root", !!st.impact && st.impact.root === id);
       });
       Object.keys(st.edgeEl).forEach(id => {
         const on = !nb || nb.edges.has(id);
         st.edgeEl[id].classList.toggle("ar-dim", !on);
+        st.edgeEl[id].classList.toggle("ar-imp-e", !!st.impact && st.impact.edges.has(id));
         const lg = st.labelEl[id];
         if (lg) lg.setAttribute("display", (st.showLabels && on) || (nb && nb.edges.has(id)) ? "inline" : "none");
         const w = +st.edgeEl[id].getAttribute("data-w");
@@ -396,6 +421,8 @@
     svg.addEventListener("pointerdown", ev => {
       if (ev.button !== 0) return;
       const t = ev.target;
+      const gc = t.closest("[data-gcollapse]");
+      if (gc) { if (opts.onGroupCollapse) opts.onGroupCollapse(gc.getAttribute("data-gcollapse")); return; }
       const handle = t.closest("[data-handle]");
       const nodeG = t.closest("[data-nid]");
       const glabel = t.closest("[data-glabel]");
@@ -608,9 +635,120 @@
       img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(s);
     }
 
+    const DEP_KINDS = new Set(["traffic", "routes", "calls", "config", "storage", "dns", "custom", "ref", "depends"]);
+    function impactOf(root) {
+      const nodes = new Set([root]), edges = new Set();
+      const queue = [root];
+      while (queue.length) {
+        const cur = queue.shift();
+        st.edges.forEach(e => {
+          if (e.to !== cur || !DEP_KINDS.has(e.kind)) return;
+          edges.add(e.id);
+          if (!nodes.has(e.from)) { nodes.add(e.from); queue.push(e.from); }
+        });
+      }
+      return { root: root, nodes: nodes, edges: edges };
+    }
+
+    function groupsOf() {
+      const out = {};
+      st.nodes.forEach(n => { if (n.group && !out[n.group]) { const b = groupBox(n.group); if (b) out[n.group] = b; } });
+      return out;
+    }
+
+    function mmdText(s) { return (s || "").replace(/"/g, "#quot;").replace(/[<>]/g, ""); }
+
+    function exportMermaid() {
+      const ids = {};
+      st.nodes.forEach((n, i) => { ids[n.id] = "n" + i; });
+      const shape = (n, label) => {
+        const l = '"' + label + '"';
+        switch (n.kind) {
+          case "db": case "pvc": case "storage": return "[(" + l + ")]";
+          case "service": return "([" + l + "])";
+          case "ingress": return ">" + l + "]";
+          case "internet": case "user": return "((" + l + "))";
+          case "lb": case "external": case "aws": case "cidr": return "{{" + l + "}}";
+          case "configmap": case "secret": return "[/" + l + "/]";
+          case "queue": case "cache": return "[[" + l + "]]";
+          case "namespace": return "[" + l + "]";
+          default: return "[" + l + "]";
+        }
+      };
+      const line = n => ids[n.id] + shape(n, mmdText(n.name) + (n.sub ? "<br/><small>" + mmdText(n.sub) + "</small>" : ""));
+      const out = ["flowchart LR"];
+      const kinds = new Set(st.nodes.map(n => n.kind));
+      kinds.forEach(k => out.push("  classDef " + k + " fill:" + (COLORS[k] || COLORS.tf) + "22,stroke:" + (COLORS[k] || COLORS.tf) + ",stroke-width:1.5px"));
+      const groups = {};
+      st.nodes.forEach(n => { if (n.group) (groups[n.group] = groups[n.group] || []).push(n); });
+      Object.keys(groups).sort().forEach((gid, i) => {
+        const label = (opts.groupLabel && opts.groupLabel(gid)) || gid;
+        out.push("  subgraph g" + i + '["' + mmdText(label) + '"]');
+        groups[gid].forEach(n => out.push("    " + line(n)));
+        out.push("  end");
+      });
+      st.nodes.forEach(n => { if (!n.group) out.push("  " + line(n)); });
+      const styles = [];
+      st.edges.forEach((e, i) => {
+        const s = EDGE[e.kind] || EDGE.ref;
+        const arrow = e.kind === "traffic" ? "==>" : (s.dash ? "-.->" : "-->");
+        const lbl = e.label ? '|"' + mmdText(trunc(e.label, 40)) + '"|' : "";
+        out.push("  " + ids[e.from] + " " + arrow + lbl + " " + ids[e.to]);
+        styles.push("  linkStyle " + i + " stroke:" + s.c);
+      });
+      st.nodes.forEach(n => out.push("  class " + ids[n.id] + " " + n.kind));
+      return out.concat(styles).join("\n") + "\n";
+    }
+
+    function xmlEsc(s) { return (s == null ? "" : "" + s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
+
+    function exportDrawio() {
+      const cells = ['<mxCell id="0"/>', '<mxCell id="1" parent="0"/>'];
+      const groups = groupsOf();
+      const gids = {};
+      Object.keys(groups).sort().forEach((gid, i) => {
+        const b = groups[gid];
+        const label = (opts.groupLabel && opts.groupLabel(gid)) || gid;
+        const c = (opts.groupColor && opts.groupColor(gid)) || ENV_C[envOf(label)];
+        gids[gid] = "g" + i;
+        cells.push('<mxCell id="g' + i + '" value="' + xmlEsc(label) + '" style="swimlane;rounded=1;arcSize=4;dashed=1;fillColor=none;swimlaneFillColor=none;strokeColor=' + c +
+          ";fontColor=" + c + ';fontStyle=1;startSize=26;align=left;spacingLeft=10;" vertex="1" parent="1"><mxGeometry x="' + Math.round(b.x) + '" y="' + Math.round(b.y) +
+          '" width="' + Math.round(b.w) + '" height="' + Math.round(b.h) + '" as="geometry"/></mxCell>');
+      });
+      const ids = {};
+      st.nodes.forEach((n, i) => {
+        ids[n.id] = "n" + i;
+        const p = st.pos[n.id];
+        const c = COLORS[n.kind] || COLORS.tf;
+        let shape = "rounded=1;arcSize=14;";
+        if (n.kind === "db" || n.kind === "pvc" || n.kind === "storage") shape = "shape=cylinder3;boundedLbl=1;size=8;";
+        else if (n.kind === "service") shape = "rounded=1;arcSize=50;";
+        else if (n.kind === "internet" || n.kind === "user") shape = "ellipse;";
+        else if (n.kind === "lb" || n.kind === "external" || n.kind === "aws") shape = "shape=hexagon;perimeter=hexagonPerimeter2;size=0.08;";
+        else if (n.kind === "note") shape = "shape=note;size=12;";
+        const parent = n.group && gids[n.group] ? gids[n.group] : "1";
+        const gb = n.group && groups[n.group];
+        const x = Math.round(p.x - (gb ? gb.x : 0)), y = Math.round(p.y - (gb ? gb.y : 0));
+        const m = n.meta || {};
+        const extra = m.pods != null ? "<br><font style=\"font-size:9px\" color=\"#6b7280\">" + xmlEsc([m.podsReady + "/" + m.pods, m.cpu, m.mem].filter(Boolean).join(" · ")) + "</font>" : "";
+        const value = "<b>" + xmlEsc(n.name) + "</b><br><font style=\"font-size:10px\" color=\"#6b7280\">" + xmlEsc(n.sub || KIND_LABEL[n.kind] || "") + "</font>" + extra;
+        cells.push('<mxCell id="n' + i + '" value="' + xmlEsc(value) + '" style="' + shape + "whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=" + (n.sev === 2 ? "#ef4444" : c) +
+          ";strokeWidth=" + (n.sev ? 2 : 1.5) + ';fontColor=#111827;fontSize=12;" vertex="1" parent="' + parent + '"><mxGeometry x="' + x + '" y="' + y + '" width="' + W + '" height="' + H + '" as="geometry"/></mxCell>');
+      });
+      st.edges.forEach((e, i) => {
+        const s = EDGE[e.kind] || EDGE.ref;
+        cells.push('<mxCell id="e' + i + '" value="' + xmlEsc(e.label ? trunc(e.label, 40) : "") + '" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=' + s.c +
+          ";strokeWidth=" + s.w + ";" + (s.dash ? "dashed=1;" : "") + 'fontSize=10;fontColor=#374151;endArrow=block;endFill=1;" edge="1" parent="1" source="' + ids[e.from] + '" target="' + ids[e.to] + '"><mxGeometry relative="1" as="geometry"/></mxCell>');
+      });
+      return '<mxfile host="kube-oxente"><diagram name="arquitetura" id="koxente"><mxGraphModel grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="0" pageScale="1" math="0" shadow="0"><root>' +
+        cells.join("") + "</root></mxGraphModel></diagram></mxfile>";
+    }
+
     applyView();
     return {
-      st: st, setData: setData, fit: fit, center: center, select: select, renderAll: renderAll,
+      st: st,
+      impact: root => { st.impact = root ? impactOf(root) : null; applyHighlight(); return st.impact; },
+      exportMermaid: exportMermaid, exportDrawio: exportDrawio, setData: setData, fit: fit, center: center, select: select, renderAll: renderAll,
       zoom: f => { const r = svg.getBoundingClientRect(); zoomAt(f, r.width / 2, r.height / 2); },
       setConnect: on => { st.connect = on; st.connectFrom = null; svg.classList.toggle("connecting", on); applyHighlight(); },
       setLabels: on => { st.showLabels = on; applyHighlight(); },
@@ -628,7 +766,11 @@
 
   function key() { return "koxente.arch." + (S.ctx || "default"); }
   function tfKey() { return "koxente.tf." + (S.ctx || "default"); }
-  function saved() { return lsGet(key(), { pos: {}, view: null, custom: { nodes: [], edges: [] }, hidden: [], notes: {} }); }
+  function saved() {
+    const st = lsGet(key(), { pos: {}, view: null, custom: { nodes: [], edges: [] }, hidden: [], notes: {} });
+    st.custom = st.custom || { nodes: [], edges: [] };
+    return st;
+  }
   function save(st) { lsSet(key(), st); }
 
   function root() { return document.getElementById("ar-root"); }
@@ -679,7 +821,7 @@
     return '<div class="ar-zoom">' +
       '<button data-z="in" title="Aproximar">+</button><button data-z="out" title="Afastar">−</button>' +
       '<button data-z="fit" title="Enquadrar">⊡</button><hr>' +
-      '<button data-z="png" class="sm" title="Exportar PNG">PNG</button><button data-z="svg" class="sm" title="Exportar SVG">SVG</button></div>' +
+      '<button data-z="exp" class="sm" title="Exportar (PNG, SVG, Mermaid, draw.io)">⤓</button></div>' +
       '<div class="ar-zl" id="' + id + '-zl"></div>';
   }
 
@@ -689,9 +831,44 @@
       if (z === "in") dg.zoom(1.2);
       if (z === "out") dg.zoom(1 / 1.2);
       if (z === "fit") dg.fit();
-      if (z === "png") dg.exportPNG(name());
-      if (z === "svg") dg.exportSVG(name());
+      if (z === "exp") openExportMenu(stage, b, dg, name);
     });
+  }
+
+  function openExportMenu(stage, btn, dg, name) {
+    closePop();
+    const m = document.createElement("div");
+    m.className = "tf-menu";
+    m.id = "tf-menu";
+    const br = btn.getBoundingClientRect(), sr = stage.getBoundingClientRect();
+    m.style.right = (sr.right - br.left + 8) + "px";
+    m.style.top = (br.top - sr.top) + "px";
+    const items = [
+      ["h", "Imagem"], ["png", "PNG"], ["svg", "SVG"],
+      ["h", "Diagrama editável"], ["mmd", "Mermaid (.mmd)"], ["mmdcopy", "Copiar Mermaid"], ["drawio", "draw.io (.drawio)"]
+    ];
+    m.innerHTML = items.map(i => i[0] === "h" ? '<div class="h">' + i[1] + "</div>" : '<div data-x="' + i[0] + '">' + i[1] + "</div>").join("");
+    stage.appendChild(m);
+    m.querySelectorAll("[data-x]").forEach(x => x.onclick = () => {
+      const k = x.getAttribute("data-x");
+      if (k === "png") dg.exportPNG(name());
+      if (k === "svg") dg.exportSVG(name());
+      if (k === "mmd") download(name() + ".mmd", new Blob([dg.exportMermaid()], { type: "text/plain" }));
+      if (k === "mmdcopy" && navigator.clipboard) navigator.clipboard.writeText(dg.exportMermaid()).then(() => toast(stage, "Mermaid copiado — cole num README ou no GitHub"));
+      if (k === "drawio") download(name() + ".drawio", new Blob([dg.exportDrawio()], { type: "application/xml" }));
+      closePop();
+    });
+    setTimeout(() => document.addEventListener("pointerdown", function off(ev) {
+      if (!m.contains(ev.target)) { closePop(); document.removeEventListener("pointerdown", off); }
+    }), 0);
+  }
+
+  function toast(stage, msg) {
+    const t = document.createElement("div");
+    t.className = "ar-hint";
+    t.textContent = msg;
+    stage.appendChild(t);
+    setTimeout(() => t.remove(), 2200);
   }
 
   function fileBase(suffix) {
@@ -715,7 +892,8 @@
       onConnect: (a, b) => addCustomEdge(a, b),
       onConnectStart: () => hint("agora clique no destino"),
       onDblEmpty: (w, sx, sy) => openAddNode(w, sx, sy),
-      onDblNode: id => { const n = S.dg.st.byId[id]; if (n && n.custom) { S.dg.select({ type: "node", id: id }); setTimeout(() => { const i = document.getElementById("ar-cn-name"); if (i) i.focus(); }, 30); } }
+      onGroupCollapse: gid => setCollapsed(gid, true),
+      onDblNode: id => { const n = S.dg.st.byId[id]; if (n && n.collapsedNS) { setCollapsed(n.collapsedNS, false); return; } if (n && n.custom) { S.dg.select({ type: "node", id: id }); setTimeout(() => { const i = document.getElementById("ar-cn-name"); if (i) i.focus(); }, 30); } }
     });
     bindZoom(stage, S.dg, () => fileBase("arquitetura"));
     renderChips();
@@ -748,6 +926,7 @@
         '<button class="ar-btn" id="ar-add" title="Adicionar um nó manual (ou dê duplo clique no canvas)">+ nó</button>' +
         '<button class="ar-btn' + (S.connect ? " on" : "") + '" id="ar-con" title="Ligar dois nós (ou arraste a bolinha roxa de um nó)">⤳ conectar</button>' +
         '<button class="ar-btn" id="ar-lay" title="Reorganizar automaticamente">organizar</button>' +
+        '<button class="ar-btn" id="ar-col" title="Recolher ou expandir todos os namespaces">' + ((saved().collapsed || []).length ? "expandir tudo" : "recolher tudo") + "</button>" +
         (hidden ? '<button class="ar-btn" id="ar-unh" title="Mostrar nós ocultados">ocultos (' + hidden + ")</button>" : "") +
         '<button class="ar-btn" id="ar-ref" title="Ler o cluster de novo">↻ cluster</button>';
       document.getElementById("ar-add").onclick = () => {
@@ -762,6 +941,15 @@
         if (S.connect) hint("clique na origem e depois no destino"); else hint("");
       };
       document.getElementById("ar-lay").onclick = () => { const st = saved(); st.pos = {}; save(st); applyGraph(true); setTimeout(() => S.dg.fit(), 30); };
+      document.getElementById("ar-col").onclick = () => {
+        const st = saved();
+        st.collapsed = (st.collapsed || []).length ? [] : allNamespaces();
+        save(st);
+        S.sel = null;
+        S.dg.impact(null);
+        applyGraph(false);
+        setTimeout(() => S.dg.fit(), 30);
+      };
       const u = document.getElementById("ar-unh");
       if (u) u.onclick = () => { const st = saved(); st.hidden = []; save(st); renderTools(); applyGraph(false); };
       document.getElementById("ar-ref").onclick = () => fetchGraph(false, true);
@@ -819,6 +1007,11 @@
         if (!S.dg || S.mode !== "diagram") return;
         if (changed || first || force) {
           const st = saved();
+          if (st.collapsed === undefined) {
+            const nsl = allNamespaces();
+            st.collapsed = nsl.length > 6 && g.nodes.length > 150 ? nsl : [];
+            save(st);
+          }
           applyGraph(false);
           if (first || ctxChanged) { if (st.view && !ctxChanged) S.dg.setView(st.view); else setTimeout(() => S.dg.fit(), 20); }
         }
@@ -844,7 +1037,56 @@
     const out = nodes.filter(n => n.kind !== "internet" || deg[n.id]);
     (st.custom.nodes || []).forEach(n => { if (!hidden.has(n.id)) out.push(Object.assign({ custom: true }, n)); });
     (st.custom.edges || []).forEach(e => edges.push(Object.assign({ custom: true, kind: "custom" }, e)));
-    return { nodes: out, edges: edges };
+    return collapseGroups(out, edges, new Set(st.collapsed || []));
+  }
+
+  function collapseGroups(nodes, edges, collapsed) {
+    if (!collapsed.size) return { nodes: nodes, edges: edges };
+    const map = {}, agg = {};
+    const out = [];
+    nodes.forEach(n => {
+      if (!n.group || !collapsed.has(n.group)) { out.push(n); return; }
+      const gid = "nsgrp:" + n.group;
+      map[n.id] = gid;
+      const a = agg[gid] = agg[gid] || { id: gid, kind: "namespace", name: n.group, ns: n.group, collapsedNS: n.group, sev: 0, count: 0, bad: 0, wl: 0 };
+      a.count++;
+      if (n.kind === "workload") a.wl++;
+      if (n.sev) a.bad++;
+      a.sev = Math.max(a.sev, n.sev || 0);
+    });
+    Object.keys(agg).forEach(gid => {
+      const a = agg[gid];
+      a.sub = a.wl + " workloads · " + a.count + " recursos" + (a.bad ? " · " + a.bad + " com alerta" : "");
+      out.push(a);
+    });
+    const seen = new Set();
+    const outE = [];
+    edges.forEach(e => {
+      const f = map[e.from] || e.from, t = map[e.to] || e.to;
+      if (f === t) return;
+      const id = f + ">" + t + ">" + e.kind;
+      if (seen.has(id)) return;
+      seen.add(id);
+      outE.push(Object.assign({}, e, { id: e.custom ? e.id : id, from: f, to: t, label: map[e.from] || map[e.to] ? "" : e.label }));
+    });
+    return { nodes: out, edges: outE };
+  }
+
+  function setCollapsed(ns, on) {
+    const st = saved();
+    const set = new Set(st.collapsed || []);
+    if (on) set.add(ns); else set.delete(ns);
+    st.collapsed = Array.from(set);
+    save(st);
+    S.sel = null;
+    if (S.dg) { S.dg.impact(null); S.dg.select(null); }
+    applyGraph(false);
+  }
+
+  function allNamespaces() {
+    const set = new Set();
+    ((S.graph && S.graph.nodes) || []).forEach(n => { if (n.group) set.add(n.group); });
+    return Array.from(set);
   }
 
   function applyGraph(relayout) {
@@ -951,6 +1193,15 @@
     const conns = dst.edges.filter(e => e.from === n.id || e.to === n.id);
     const meta = n.meta || {};
     let html = '<span class="x" id="ar-ix">×</span>';
+    if (n.collapsedNS) {
+      box.innerHTML = html + "<h3>" + h(n.name) + '</h3><div class="muted">namespace recolhido · ' + h(n.sub) + "</div>" +
+        '<div class="row"><button id="ar-iexp" class="btn-live">expandir</button><button id="ar-iimp">impacto</button></div>' + impactHTML(n.id);
+      document.getElementById("ar-ix").onclick = () => S.dg.select(null);
+      document.getElementById("ar-iexp").onclick = () => setCollapsed(n.collapsedNS, false);
+      document.getElementById("ar-iimp").onclick = () => toggleImpact(n.id);
+      bindImpactList(box);
+      return;
+    }
     if (n.custom) {
       html += "<h3>" + h(n.name) + '</h3><div class="muted">nó manual</div>' +
         '<div class="k">Nome</div><input id="ar-cn-name" type="text" value="' + h(n.name) + '">' +
@@ -960,6 +1211,7 @@
       html += "<h3>" + h(n.name) + "</h3>" +
         '<div class="muted">' + h(n.sub || KIND_LABEL[n.kind]) + "</div>" +
         (n.ns ? '<div class="k">Namespace</div><div>' + h(n.ns) + ' <span class="badge ' + envOf(n.ns) + '">' + envOf(n.ns) + "</span></div>" : "") +
+        healthHTML(n) +
         (meta.images ? '<div class="k">Imagens</div><pre>' + h(meta.images) + "</pre>" : "") +
         (meta.serviceAccount ? '<div class="k">ServiceAccount</div><div class="mono">' + h(meta.serviceAccount) + "</div>" : "") +
         (meta.hosts ? '<div class="k">Hosts</div><pre>' + h(meta.hosts) + "</pre>" : "") +
@@ -973,14 +1225,21 @@
         "<small>" + h((e.custom ? "manual" : e.kind) + (e.label ? " · " + e.label : "")) + "</small>" +
         ((e.evidence || []).length ? "<small>" + h(e.evidence.join(" · ")) + "</small>" : "") + "</div></div>";
     }).join("") : '<div class="muted">nenhuma</div>');
+    html += impactHTML(n.id);
     html += '<div class="k">Anotações</div><textarea id="ar-note" placeholder="observações suas sobre este recurso (fica salvo neste navegador)">' + h((st.notes || {})[n.id] || "") + "</textarea>";
     html += '<div class="row">' +
       '<button id="ar-ic">centralizar</button>' +
+      '<button id="ar-iimp" title="Quem é afetado se este recurso cair (atalho: i)">' + (S.dg.st.impact && S.dg.st.impact.root === n.id ? "limpar impacto" : "impacto") + "</button>" +
       (n.kind === "workload" ? '<button id="ar-ip">ver pods</button>' : "") +
       (n.custom ? '<button id="ar-idel" class="btn-stop">remover</button>' : '<button id="ar-ih">ocultar</button>') + "</div>";
     box.innerHTML = html;
     document.getElementById("ar-ix").onclick = () => S.dg.select(null);
     document.getElementById("ar-ic").onclick = () => S.dg.center(n.id);
+    document.getElementById("ar-iimp").onclick = () => toggleImpact(n.id);
+    bindImpactList(box);
+    const idg = document.getElementById("ar-idiag");
+    if (idg) idg.onclick = () => { if (typeof openDetail === "function") openDetail(n.ns, meta.samplePod, meta.reason || ""); };
+    if (meta.samplePod && n.sev) loadProblemHint(n);
     box.querySelectorAll("[data-go]").forEach(x => x.onclick = () => { const id = x.getAttribute("data-go"); if (id) { S.dg.center(id); S.dg.select({ type: "node", id: id }); } });
     document.getElementById("ar-note").onchange = ev => { const st2 = saved(); st2.notes = st2.notes || {}; st2.notes[n.id] = ev.target.value; save(st2); };
     const ip = document.getElementById("ar-ip");
@@ -1005,6 +1264,60 @@
       };
       ["ar-cn-name", "ar-cn-sub", "ar-cn-kind"].forEach(i => document.getElementById(i).onchange = upd);
     }
+  }
+
+  function healthHTML(n) {
+    const m = n.meta || {};
+    if (m.pods == null) return "";
+    const ready = +m.podsReady, total = +m.pods;
+    const cls = total && ready < total ? (ready ? "color:var(--yel)" : "color:var(--red)") : "color:var(--grn)";
+    let out = '<div class="k">Saúde agora</div><div class="ar-hgrid">' +
+      '<div><b style="' + cls + '">' + ready + "/" + total + "</b><small>pods prontos</small></div>" +
+      "<div><b>" + h(m.cpu || "–") + "</b><small>CPU</small></div>" +
+      "<div><b>" + h(m.mem || "–") + "</b><small>memória</small></div>" +
+      '<div><b style="' + (+m.restarts ? "color:var(--yel)" : "") + '">' + h(m.restarts || "0") + "</b><small>restarts</small></div></div>";
+    const anyMetrics = ((S.graph && S.graph.nodes) || []).some(x => x.meta && x.meta.cpu);
+    if (!anyMetrics) out += '<div class="muted" style="font-size:11px;margin-top:4px">sem métricas de CPU/memória — o cluster tem metrics-server?</div>';
+    if (m.samplePod && n.sev) {
+      out += '<div class="ar-prob"><b>' + h(m.reason || "problema") + "</b> em <span class=\"mono\">" + h(m.samplePod) + "</span>" +
+        '<div id="ar-phint" class="muted" style="margin-top:4px"></div>' +
+        '<div class="row"><button id="ar-idiag" class="btn-stop">ver diagnóstico, eventos e logs</button></div></div>';
+    }
+    return out;
+  }
+
+  function loadProblemHint(n) {
+    const pods = new Set(((n.meta || {}).podNames || "").split(",").filter(Boolean));
+    fetch("/api/problems").then(r => r.json()).then(list => {
+      const el2 = document.getElementById("ar-phint");
+      if (!el2 || !S.sel || S.sel.id !== n.id) return;
+      const hit = (list || []).find(p => p.ns === n.ns && (p.pods || []).some(x => pods.has(x)));
+      const diag = hit && hit.primaryDiag;
+      if (diag && diag.toLowerCase() !== String((n.meta || {}).reason || "").toLowerCase()) el2.textContent = "provável causa: " + diag;
+    }).catch(() => { });
+  }
+
+  function toggleImpact(id) {
+    if (!S.dg) return;
+    const cur = S.dg.st.impact;
+    S.dg.impact(cur && cur.root === id ? null : id);
+    renderInspector();
+  }
+
+  function impactHTML(id) {
+    const imp = S.dg && S.dg.st.impact;
+    if (!imp || imp.root !== id) return "";
+    const dst = S.dg.st;
+    const hit = Array.from(imp.nodes).filter(x => x !== id).map(x => dst.byId[x]).filter(Boolean);
+    if (!hit.length) return '<div class="ar-imp-box">Nada no desenho depende deste recurso.</div>';
+    const order = ["internet", "lb", "ingress", "service", "workload", "namespace"];
+    hit.sort((a, b) => (order.indexOf(a.kind) + 10) % 20 - (order.indexOf(b.kind) + 10) % 20 || a.name.localeCompare(b.name));
+    return '<div class="ar-imp-box"><b>Se cair, afeta ' + hit.length + " recurso" + (hit.length > 1 ? "s" : "") + "</b>" +
+      hit.map(x => '<div class="cx" data-go="' + h(x.id) + '"><span>↳</span><div>' + h(x.name) + "<small>" + h((x.ns ? x.ns + " · " : "") + (KIND_LABEL[x.kind] || x.kind)) + "</small></div></div>").join("") + "</div>";
+  }
+
+  function bindImpactList(box) {
+    box.querySelectorAll(".ar-imp-box [data-go]").forEach(x => x.onclick = () => S.dg.center(x.getAttribute("data-go")));
   }
 
   function deleteSelected() {
@@ -1042,6 +1355,12 @@
     if (hits.length && (center || hits.length === 1)) dg.center(hits[S.searchIdx % hits.length].id);
   }
 
+  window.addEventListener("hashchange", () => {
+    if (!root() || !/^#arch/.test(location.hash)) return;
+    const want = /^#arch:terraform/.test(location.hash) ? "tf" : "diagram";
+    if (want !== S.mode) setMode(want);
+  });
+
   document.addEventListener("keydown", ev => {
     if (!root()) return;
     const tag = (ev.target.tagName || "").toLowerCase();
@@ -1049,8 +1368,10 @@
     if (ev.key === "Escape") {
       closePop();
       if (S.connect) { S.connect = false; if (S.dg) S.dg.setConnect(false); renderTools(); hint(""); }
+      else if (S.dg && S.mode === "diagram" && S.dg.st.impact) { S.dg.impact(null); renderInspector(); }
       else if (S.dg && S.mode === "diagram") S.dg.select(null);
     }
+    if (ev.key === "i" && S.mode === "diagram" && S.sel && S.sel.type === "node") toggleImpact(S.sel.id);
     if ((ev.key === "Delete" || ev.key === "Backspace") && S.mode === "diagram" && S.sel) { ev.preventDefault(); deleteSelected(); }
   });
 

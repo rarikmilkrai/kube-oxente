@@ -1031,6 +1031,8 @@ func collectArchitecture(nsFilter string, includeSystem bool) archGraph {
 		}
 	}
 
+	applyHealth(g, collectWorkloadHealth(d, nsFilter, includeSystem))
+
 	out := archGraph{Context: effectiveContext(), Stats: map[string]int{}, Secrets: archScanSecrets}
 	if len(d.Namespaces) == 0 {
 		if _, err := kubectl("get", "namespaces", "-o", "name"); err != nil {

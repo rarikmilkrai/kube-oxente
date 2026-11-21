@@ -89,3 +89,16 @@ func TestAlignHCL(t *testing.T) {
 		t.Errorf("alinhamento errado:\n%s", out)
 	}
 }
+
+func TestParseUnits(t *testing.T) {
+	for in, want := range map[string]int{"250m": 250, "2": 2000, "1500000n": 1} {
+		if got, _ := parseCPUMilli(in); got != want {
+			t.Errorf("cpu %s = %d, esperado %d", in, got, want)
+		}
+	}
+	for in, want := range map[string]int{"512Mi": 512, "2Gi": 2048, "2048Ki": 2} {
+		if got, _ := parseMemMi(in); got != want {
+			t.Errorf("mem %s = %d, esperado %d", in, got, want)
+		}
+	}
+}
