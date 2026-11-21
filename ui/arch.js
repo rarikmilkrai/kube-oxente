@@ -855,7 +855,10 @@
     S.dg.setLabels(S.layers.labels);
     if (relayout) persistPositions();
     const empty = document.getElementById("ar-empty");
-    if (empty) {
+    if (empty && S.graph && S.graph.error) {
+      empty.style.display = "";
+      empty.textContent = "não consegui ler o cluster (contexto " + S.graph.context + "): " + S.graph.error;
+    } else if (empty) {
       if (!vg.nodes.length) { empty.style.display = ""; empty.textContent = "nada para desenhar aqui — troque o namespace ou ative \"Sistema\"."; }
       else empty.style.display = "none";
     }
