@@ -84,3 +84,15 @@
 .tf-menu div:hover{background:var(--panel2)}
 .tf-menu .h{color:var(--mut);font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;cursor:default;font-family:inherit}
 .tf-menu .h:hover{background:none}
+.ar-pulse{animation:arpulse 1.6s ease-in-out infinite}
+@keyframes arpulse{50%{stroke-opacity:.25;stroke-width:3}}
+.ar-n.ar-imp rect:first-child{stroke:#ff6b6b;stroke-opacity:1;stroke-width:2}
+.ar-n.ar-imp-root rect:first-child{stroke:#ff6b6b;stroke-opacity:1;stroke-width:3}
+.ar-e.ar-imp-e path:nth-child(2){stroke:#ff6b6b;stroke-opacity:1}
+.ar-hgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.ar-hgrid div{background:#0b0d12;border-radius:6px;padding:6px;text-align:center}
+.ar-hgrid b{display:block;font-size:13px}
+.ar-hgrid small{color:var(--mut);font-size:10px}
+.ar-prob{margin-top:10px;background:rgba(255,107,107,.08);border:1px solid rgba(255,107,107,.3);border-radius:8px;padding:8px 10px}
+.ar-imp-box{margin-top:12px;background:rgba(255,107,107,.06);border:1px solid rgba(255,107,107,.25);border-radius:8px;padding:8px 10px}
+.ar-imp-box b{color:#fca5a5}

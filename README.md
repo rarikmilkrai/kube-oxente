@@ -251,7 +251,7 @@ O contexto também pode ser trocado direto no seletor no topo do painel — list
 | **Eventos** | Warning events do cluster inteiro, ordenados por frequência |
 | **Nós** | Nome, tipo de instância, capacidade (spot/on-demand), zona e status ready |
 | **Rede** | Services órfãos (sem endpoint pronto) ou com mismatch de porta, cobertura de NetworkPolicy por namespace, saúde do VPC CNI (aws-node) e config de SNAT/IP, réplicas e forwarders do CoreDNS, TargetGroupBinding/SecurityGroupPolicy (quando instalados) e Ingress — hosts, load balancer, classe, portas e TLS |
-| **Arquitetura** | Desenho de quem fala com quem: Internet → LB → Ingress → Service → Workload, mais ConfigMaps/Secrets, PVCs, HPA, NetworkPolicy e dependências externas (RDS, ElastiCache, SQS, MongoDB Atlas…) descobertas nas variáveis de ambiente e ConfigMaps. Canvas interativo: arrastar, zoom, adicionar nós e conexões manuais, ocultar, anotar e exportar PNG/SVG (layout salvo no navegador por contexto). Modo **Terraform**: gera o HCL (`hashicorp/kubernetes`) com blocos `import {}` e mostra o diagrama a partir do próprio HCL — edite o código e o desenho acompanha |
+| **Arquitetura** | Desenho de quem fala com quem: Internet → LB → Ingress → Service → Workload, mais ConfigMaps/Secrets, PVCs, HPA, NetworkPolicy e dependências externas (RDS, ElastiCache, SQS, MongoDB Atlas…) descobertas nas variáveis de ambiente e ConfigMaps. Canvas interativo: arrastar, zoom, adicionar nós e conexões manuais, ocultar, anotar e exportar PNG/SVG (layout salvo no navegador por contexto). Cada workload mostra pods prontos, CPU, memória e restarts (via metrics-server); CrashLoop pisca em vermelho e o painel lateral leva direto ao diagnóstico com eventos e logs. **Raio de impacto** (tecla `i`): destaca tudo que para se aquele recurso cair. Em cluster grande os namespaces já abrem recolhidos (duplo clique expande). Exporta para **Mermaid** (cola direto em README/GitHub) e **draw.io**, além de PNG/SVG. Modo **Terraform**: gera o HCL (`hashicorp/kubernetes`) com blocos `import {}` e mostra o diagrama a partir do próprio HCL — edite o código e o desenho acompanha |
 | **CronJobs** | Schedule, status de execução ativa, última execução, último sucesso — com detecção de falha (sem sucesso, último run falhou, suspenso) |
 | **HPA** | Autoscalers com min/max/atual/desejado, destaque quando fora do range |
 | **PVCs** | Status (Bound/Pending/Lost), capacidade, access modes e StorageClass |
@@ -349,6 +349,7 @@ ui/          canvas da aba Arquitetura (arch.js / arch.css)
 - [x] Métricas de CPU/Mem em tempo real no painel de detalhe do pod
 - [x] Visualização das chaves de Secret referenciadas por um pod (sem expor valores)
 - [x] Aba Rede: endpoints órfãos/mismatch de porta, cobertura de NetworkPolicy, saúde do VPC CNI, CoreDNS, TargetGroupBinding/SecurityGroupPolicy
+- [x] Aba Arquitetura: diagrama interativo, saúde por workload, raio de impacto, recolher namespaces, exportar Mermaid/draw.io e gerar Terraform com import
 - [ ] Aba de comparação entre contextos (multi-cluster side-by-side)
 - [ ] Alertas configuráveis (threshold de restarts, pods pending há N min)
 
