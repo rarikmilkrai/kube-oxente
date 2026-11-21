@@ -696,6 +696,7 @@ type archGraph struct {
 	Edges   []archEdge     `json:"edges"`
 	Stats   map[string]int `json:"stats"`
 	Secrets bool           `json:"secretsScanned"`
+	Error   string         `json:"error,omitempty"`
 }
 
 type graphBuilder struct {
@@ -1031,6 +1032,11 @@ func collectArchitecture(nsFilter string, includeSystem bool) archGraph {
 	}
 
 	out := archGraph{Context: effectiveContext(), Stats: map[string]int{}, Secrets: archScanSecrets}
+	if len(d.Namespaces) == 0 {
+		if _, err := kubectl("get", "namespaces", "-o", "name"); err != nil {
+			out.Error = err.Error()
+		}
+	}
 	for _, id := range g.order {
 		n := g.nodes[id]
 		out.Nodes = append(out.Nodes, *n)
