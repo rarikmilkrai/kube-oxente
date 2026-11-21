@@ -1,4 +1,4 @@
-// main.go — servidor do painel kdash (read-only).
+// main.go — servidor do painel koxente (read-only).
 package main
 
 import (
@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"time"
 )
 
 func writeJSON(w http.ResponseWriter, v any) {
@@ -15,11 +16,14 @@ func writeJSON(w http.ResponseWriter, v any) {
 }
 
 func main() {
-	port     := flag.Int("port", 8200, "porta do painel web")
-	host     := flag.String("host", "127.0.0.1", "endereço de escuta (use 0.0.0.0 para Docker)")
-	ctx      := flag.String("context", "", "contexto kubeconfig inicial (vazio = o atual)")
+	port := flag.Int("port", 8200, "porta do painel web")
+	host := flag.String("host", "127.0.0.1", "endereço de escuta (use 0.0.0.0 para Docker)")
+	ctx := flag.String("context", "", "contexto kubeconfig inicial (vazio = o atual)")
 	logLines := flag.Int("logs", 40, "linhas de log no detalhe do pod")
+	timeout := flag.Duration("timeout", 30*time.Second, "tempo máximo de cada chamada ao kubectl")
+	flag.BoolVar(&archScanSecrets, "arch-secrets", false, "na aba Arquitetura, lê valores de Secrets (só no servidor) para descobrir hosts de banco/cache/fila")
 	flag.Parse()
+	kubectlTimeout = *timeout
 
 	if *ctx != "" {
 		setActiveContext(*ctx)
@@ -44,22 +48,32 @@ func main() {
 		writeJSON(w, map[string]any{"ok": true, "active": effectiveContext()})
 	})
 
-	mux.HandleFunc("/api/overview",    func(w http.ResponseWriter, r *http.Request) { writeJSON(w, collectOverview(r.URL.Query().Get("ns"))) })
-	mux.HandleFunc("/api/problems",    func(w http.ResponseWriter, r *http.Request) { writeJSON(w, collectProblems()) })
-	mux.HandleFunc("/api/namespaces",  func(w http.ResponseWriter, r *http.Request) { writeJSON(w, collectNamespaces()) })
-	mux.HandleFunc("/api/pods",        func(w http.ResponseWriter, r *http.Request) { writeJSON(w, collectPods()) })
-	mux.HandleFunc("/api/workloads",   func(w http.ResponseWriter, r *http.Request) { writeJSON(w, collectWorkloads()) })
-	mux.HandleFunc("/api/services",    func(w http.ResponseWriter, r *http.Request) { writeJSON(w, collectServices()) })
-	mux.HandleFunc("/api/events",      func(w http.ResponseWriter, r *http.Request) { writeJSON(w, collectEvents()) })
-	mux.HandleFunc("/api/nodes",       func(w http.ResponseWriter, r *http.Request) { writeJSON(w, collectNodes()) })
-	mux.HandleFunc("/api/ingresses",   func(w http.ResponseWriter, r *http.Request) { writeJSON(w, collectIngresses()) })
-	mux.HandleFunc("/api/cronjobs",    func(w http.ResponseWriter, r *http.Request) { writeJSON(w, collectCronJobs()) })
-	mux.HandleFunc("/api/hpas",        func(w http.ResponseWriter, r *http.Request) { writeJSON(w, collectHPAs()) })
-	mux.HandleFunc("/api/pvcs",        func(w http.ResponseWriter, r *http.Request) { writeJSON(w, collectPVCs()) })
-	mux.HandleFunc("/api/metrics",     func(w http.ResponseWriter, r *http.Request) { writeJSON(w, collectMetrics()) })
-	mux.HandleFunc("/api/quotas",      func(w http.ResponseWriter, r *http.Request) { writeJSON(w, collectQuotas()) })
-	mux.HandleFunc("/api/configmaps",  func(w http.ResponseWriter, r *http.Request) { writeJSON(w, collectConfigMaps()) })
-	mux.HandleFunc("/api/netinfo",     func(w http.ResponseWriter, r *http.Request) { writeJSON(w, collectNetworkExtra()) })
+	mux.HandleFunc("/api/overview", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, collectOverview(r.URL.Query().Get("ns"))) })
+	mux.HandleFunc("/api/problems", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, collectProblems()) })
+	mux.HandleFunc("/api/namespaces", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, collectNamespaces()) })
+	mux.HandleFunc("/api/pods", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, collectPods()) })
+	mux.HandleFunc("/api/workloads", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, collectWorkloads()) })
+	mux.HandleFunc("/api/services", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, collectServices()) })
+	mux.HandleFunc("/api/events", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, collectEvents()) })
+	mux.HandleFunc("/api/nodes", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, collectNodes()) })
+	mux.HandleFunc("/api/ingresses", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, collectIngresses()) })
+	mux.HandleFunc("/api/cronjobs", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, collectCronJobs()) })
+	mux.HandleFunc("/api/hpas", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, collectHPAs()) })
+	mux.HandleFunc("/api/pvcs", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, collectPVCs()) })
+	mux.HandleFunc("/api/metrics", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, collectMetrics()) })
+	mux.HandleFunc("/api/quotas", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, collectQuotas()) })
+	mux.HandleFunc("/api/configmaps", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, collectConfigMaps()) })
+	mux.HandleFunc("/api/netinfo", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, collectNetworkExtra()) })
+	mux.HandleFunc("/api/arch", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		writeJSON(w, collectArchitecture(q.Get("ns"), q.Get("system") == "1"))
+	})
+	mux.HandleFunc("/api/arch/terraform", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		fmt.Fprint(w, generateTerraform(q.Get("ns"), q.Get("system") == "1"))
+	})
+	mux.HandleFunc("/static/", serveStatic)
 	mux.HandleFunc("/api/detail", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
 		writeJSON(w, collectDetail(q.Get("ns"), q.Get("name"), q.Get("reason"), *logLines))
@@ -72,7 +86,7 @@ func main() {
 	fmt.Printf("\n  koxente em  http://%s\n", addr)
 	fmt.Printf("  contexto:   %s\n", effectiveContext())
 	fmt.Printf("  (só leitura · Ctrl+C para sair)\n\n")
-	if err := http.ListenAndServe(addr, mux); err != nil {
+	if err := http.ListenAndServe(addr, hostGuard(*host, mux)); err != nil {
 		fmt.Fprintln(os.Stderr, "erro:", err)
 		os.Exit(1)
 	}
